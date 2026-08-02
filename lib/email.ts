@@ -184,7 +184,7 @@ function buildPatientEmailHtml(apt: AppointmentRecord): string {
 }
 
 /**
- * Dispatch notification email to Doctor and confirmation email to Patient
+ * Dispatch notification email to Doctor and confirmation email directly to Patient's email ID
  */
 export async function sendAppointmentEmails(apt: AppointmentRecord) {
   if (!isResendConfigured) {
@@ -202,6 +202,8 @@ export async function sendAppointmentEmails(apt: AppointmentRecord) {
   let doctorSent = false;
   let patientSent = false;
   const errors: string[] = [];
+
+  const patientTargetEmail = apt.email.trim().toLowerCase();
 
   // 1. Send Doctor Notification Email
   try {
@@ -224,44 +226,21 @@ export async function sendAppointmentEmails(apt: AppointmentRecord) {
     errors.push(`Doctor Email Exception: ${err?.message || err}`);
   }
 
-  // 2. Send Patient Confirmation Email
-  // Note: On Resend testing mode (onboarding@resend.dev), Resend strictly restricts sending emails
-  // ONLY to the verified account owner email (doctorEmail: shrivastavaabhinav046@gmail.com).
-  // If apt.email is different from doctorEmail, we attempt sending to apt.email AND also send a copy
-  // to doctorEmail so that during testing both emails arrive guaranteed!
+  // 2. Send Patient Confirmation Email DIRECTLY to patient's provided email address
   try {
-    // Attempt sending directly to patient email
     const patientResponse = await resend.emails.send({
       from: senderEmail,
-      to: apt.email,
+      to: patientTargetEmail,
       subject: `Appointment Confirmation Pass [${apt.booking_id}] - AuraHealth Clinic`,
       html: buildPatientEmailHtml(apt),
     });
 
     if (patientResponse.error) {
-      console.warn("Resend Notice [Patient Email to " + apt.email + "]:", patientResponse.error.message);
-      
-      // If Resend restricted sending to external patient email in testing mode, send the Patient Pass copy to doctorEmail so testing receives both!
-      if (apt.email.toLowerCase() !== doctorEmail.toLowerCase()) {
-        const fallbackResponse = await resend.emails.send({
-          from: senderEmail,
-          to: doctorEmail,
-          subject: `[PATIENT CONFIRMATION PASS for ${apt.email}] Appointment Scheduled [${apt.booking_id}]`,
-          html: buildPatientEmailHtml(apt),
-        });
-
-        if (!fallbackResponse.error) {
-          patientSent = true;
-          console.log("✅ Patient Email Copy Sent to " + doctorEmail + " (Testing Fallback Mode) ID:", fallbackResponse.data?.id);
-        } else {
-          errors.push(`Patient Email: ${patientResponse.error.message}`);
-        }
-      } else {
-        errors.push(`Patient Email: ${patientResponse.error.message}`);
-      }
+      console.error("Resend Error [Patient Email to " + patientTargetEmail + "]:", patientResponse.error.message);
+      errors.push(`Patient Email (${patientTargetEmail}): ${patientResponse.error.message}`);
     } else {
       patientSent = true;
-      console.log("✅ Patient Email Sent Successfully to " + apt.email + "! ID:", patientResponse.data?.id);
+      console.log("✅ Patient Email Sent Successfully directly to " + patientTargetEmail + "! ID:", patientResponse.data?.id);
     }
   } catch (err: any) {
     console.error("Resend Exception [Patient Email]:", err);
@@ -271,6 +250,7 @@ export async function sendAppointmentEmails(apt: AppointmentRecord) {
   return {
     doctorSent,
     patientSent,
+    patientEmailTarget: patientTargetEmail,
     simulated: false,
     errors: errors.length > 0 ? errors : undefined,
   };
