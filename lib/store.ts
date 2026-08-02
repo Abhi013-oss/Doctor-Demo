@@ -201,8 +201,9 @@ export function deleteDoctorNoteFromPatient(patientId: string, noteId: string) {
   saveStoredPatients(updated);
 }
 
-// Helper: Public Website Booking Submission
+// Helper: Public Website Booking Submission & Supabase Sync
 export function addAppointmentFromWebsite(data: {
+  bookingId?: string;
   patientName: string;
   patientPhone: string;
   patientEmail: string;
@@ -211,10 +212,18 @@ export function addAppointmentFromWebsite(data: {
   department?: string;
   reason?: string;
   age?: number;
-  gender?: 'Male' | 'Female' | 'Other';
+  gender?: 'Male' | 'Female' | 'Other' | string;
 }) {
   const currentPatients = getStoredPatients();
   const currentAppointments = getStoredAppointments();
+
+  const bookingCode = data.bookingId || `APT-${Math.floor(10000 + Math.random() * 90000)}`;
+
+  // Avoid duplicate entries if already in store
+  const existingApt = currentAppointments.find((a) => a.id === bookingCode);
+  if (existingApt) {
+    return existingApt;
+  }
 
   let patient = currentPatients.find(
     (p) => p.email.toLowerCase() === data.patientEmail.toLowerCase() || p.phone === data.patientPhone
@@ -226,7 +235,7 @@ export function addAppointmentFromWebsite(data: {
       mrn: `MRN-${Math.floor(10000 + Math.random() * 90000)}`,
       name: data.patientName,
       age: data.age || 32,
-      gender: data.gender || "Other",
+      gender: (data.gender as any) || "Male",
       phone: data.patientPhone,
       email: data.patientEmail,
       bloodGroup: "O+",
@@ -251,13 +260,13 @@ export function addAppointmentFromWebsite(data: {
 
   const nowStr = new Date().toISOString();
   const newAppointment: Appointment = {
-    id: `APT-${Math.floor(1000 + Math.random() * 9000)}`,
+    id: bookingCode,
     patientId: patient.id,
     patientName: data.patientName,
     patientPhone: data.patientPhone,
     patientEmail: data.patientEmail,
     patientAge: data.age || patient.age,
-    patientGender: data.gender || patient.gender,
+    patientGender: (data.gender as any) || patient.gender,
     doctorName: CLINIC_INFO.doctor.name.split(',')[0],
     department: data.department || "Cardiology",
     date: data.date || new Date().toISOString().split("T")[0],
@@ -272,6 +281,36 @@ export function addAppointmentFromWebsite(data: {
   currentAppointments.unshift(newAppointment);
   saveStoredAppointments(currentAppointments);
   return newAppointment;
+}
+
+// Fetch and sync all appointments directly from Supabase into Admin Store
+export async function syncSupabaseAppointmentsToStore() {
+  if (!isSupabaseConfigured) return;
+  try {
+    const { data, error } = await supabase
+      .from("appointments")
+      .select("*")
+      .order("created_at", { ascending: false });
+
+    if (error || !data) return;
+
+    data.forEach((row) => {
+      addAppointmentFromWebsite({
+        bookingId: row.booking_id,
+        patientName: row.name,
+        patientPhone: row.phone,
+        patientEmail: row.email,
+        date: row.preferred_date,
+        time: row.preferred_time,
+        department: row.disease,
+        reason: row.message,
+        age: row.age,
+        gender: row.gender,
+      });
+    });
+  } catch (err) {
+    console.warn("Supabase Sync Error:", err);
+  }
 }
 
 // Helper: Public Website Contact Form Submission
@@ -325,6 +364,7 @@ export function useLiveClinicData() {
 
   useEffect(() => {
     refreshData();
+    syncSupabaseAppointmentsToStore().then(() => refreshData());
 
     // 1. Storage & local broadcast listener
     const handleEvent = () => refreshData();
@@ -344,17 +384,19 @@ export function useLiveClinicData() {
             (payload) => {
               if (payload.eventType === "INSERT" && payload.new) {
                 addAppointmentFromWebsite({
+                  bookingId: payload.new.booking_id,
                   patientName: payload.new.name,
                   patientPhone: payload.new.phone,
                   patientEmail: payload.new.email,
                   date: payload.new.preferred_date,
                   time: payload.new.preferred_time,
                   department: payload.new.disease,
-                  reason: payload.new.message
+                  reason: payload.new.message,
+                  age: payload.new.age,
+                  gender: payload.new.gender,
                 });
-              } else {
-                refreshData();
               }
+              refreshData();
             }
           )
           .subscribe();
