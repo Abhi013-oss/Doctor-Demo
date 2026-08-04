@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { Stethoscope, Lock, Mail, ArrowRight, ShieldCheck, CheckCircle2, AlertCircle } from "lucide-react";
+import { Stethoscope, Lock, Mail, ArrowRight, ShieldCheck, AlertCircle } from "lucide-react";
 import { useAuth } from "@/components/admin/AuthProvider";
 import { DEMO_ADMIN_USER } from "@/lib/supabase";
 import Link from "next/link";
@@ -16,7 +16,6 @@ export default function LoginPage() {
   const { login } = useAuth();
 
   useEffect(() => {
-    // Ensure clean state initialization
     setErrorMsg("");
   }, []);
 
@@ -31,7 +30,6 @@ export default function LoginPage() {
     setIsSubmitting(true);
 
     try {
-      // 1. Save session user object to local storage
       const sessionUser = {
         ...DEMO_ADMIN_USER,
         email: email.trim() || DEMO_ADMIN_USER.email
@@ -40,7 +38,6 @@ export default function LoginPage() {
         localStorage.setItem("doctor_admin_user", JSON.stringify(sessionUser));
       }
 
-      // 2. Trigger auth login helper
       const res = await login(email.trim(), password);
 
       if (res && !res.success && res.error) {
@@ -49,16 +46,10 @@ export default function LoginPage() {
         return;
       }
 
-      // 3. Smooth SPA navigation to dashboard
       router.push("/dashboard");
     } catch {
       router.push("/dashboard");
     }
-  };
-
-  const handleDemoLogin = () => {
-    setEmail(DEMO_ADMIN_USER.email);
-    setPassword("admin123");
   };
 
   return (
@@ -98,26 +89,6 @@ export default function LoginPage() {
             <p className="text-xs text-slate-400">
               Access real-time patient appointments, schedules, and clinical records.
             </p>
-          </div>
-
-          {/* Quick Fill Demo Banner */}
-          <div className="p-3.5 rounded-2xl bg-teal-500/10 border border-teal-500/20 flex items-center justify-between gap-3">
-            <div className="text-xs">
-              <div className="font-bold text-teal-300 flex items-center gap-1.5">
-                <CheckCircle2 className="w-3.5 h-3.5 text-teal-400" />
-                Quick Admin Credentials
-              </div>
-              <div className="text-[11px] text-slate-400 font-mono mt-0.5">
-                Email: {DEMO_ADMIN_USER.email}
-              </div>
-            </div>
-            <button
-              type="button"
-              onClick={handleDemoLogin}
-              className="px-2.5 py-1 rounded-lg bg-teal-500 hover:bg-teal-400 text-slate-950 font-bold text-[11px] transition-colors shrink-0"
-            >
-              Auto-Fill
-            </button>
           </div>
 
           {/* Error Message Box */}
