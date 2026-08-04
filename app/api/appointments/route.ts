@@ -121,56 +121,31 @@ export async function POST(request: Request) {
         { status: 400 }
       );
     }
-
     const { name, phone, email, age, gender, disease, date, time, message, bookingId: incomingBookingId, booking_id: altBookingId, status: incomingStatus } = body;
 
     const errors: Record<string, string> = {};
 
-    const cleanName = sanitizeInput(name);
-    if (!cleanName || cleanName.length < 2) {
-      errors.name = "Full name must be at least 2 characters.";
-    } else if (cleanName.length > 100) {
-      errors.name = "Full name cannot exceed 100 characters.";
-    }
-
+    const cleanName = sanitizeInput(name) || "Guest Patient";
     const cleanPhone = sanitizeInput(phone);
-    const phoneRegex = /^[+]?[(]?[0-9]{1,4}[)]?[-\s./0-9]{7,15}$/;
-    if (!cleanPhone || !phoneRegex.test(cleanPhone)) {
-      errors.phone = "Please enter a valid contact phone number (7-15 digits).";
+    const cleanEmail = sanitizeInput(email).toLowerCase();
+    const ageNum = Number(age) || 30;
+    const cleanGender = sanitizeInput(gender) || "Male";
+    const cleanDisease = sanitizeInput(disease) || "General Consultation";
+    const cleanDate = sanitizeInput(date) || new Date().toISOString().split("T")[0];
+    const cleanTime = sanitizeInput(time) || "Morning (09:00 AM - 12:00 PM)";
+    const cleanMessage = sanitizeInput(message);
+
+    if (cleanName.length < 2) {
+      errors.name = "Full name must be at least 2 characters.";
     }
 
-    const cleanEmail = sanitizeInput(email).toLowerCase();
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!cleanEmail || !emailRegex.test(cleanEmail)) {
+    if (!cleanPhone || cleanPhone.length < 5) {
+      errors.phone = "Please enter a valid contact phone number.";
+    }
+
+    if (!cleanEmail || !cleanEmail.includes("@")) {
       errors.email = "Please enter a valid email address.";
     }
-
-    const ageNum = Number(age);
-    if (isNaN(ageNum) || ageNum < 1 || ageNum > 120) {
-      errors.age = "Please enter a valid age between 1 and 120.";
-    }
-
-    const cleanGender = sanitizeInput(gender);
-    if (!cleanGender) {
-      errors.gender = "Please select a gender option.";
-    }
-
-    const cleanDisease = sanitizeInput(disease);
-    if (!cleanDisease) {
-      errors.disease = "Please specify condition or service requested.";
-    }
-
-    const cleanDate = sanitizeInput(date);
-    if (!cleanDate) {
-      errors.date = "Please select a preferred date.";
-    }
-
-    const cleanTime = sanitizeInput(time);
-    if (!cleanTime) {
-      errors.time = "Please select a preferred time slot.";
-    }
-
-    const cleanMessage = sanitizeInput(message);
 
     if (Object.keys(errors).length > 0) {
       return NextResponse.json(
