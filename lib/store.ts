@@ -170,8 +170,28 @@ export function saveStoredMessages(threads: MessageThread[]) {
   }
 }
 
+const RECENTLY_MUTATED = new Map<string, { status?: string; deleted?: boolean; timestamp: number }>();
+
+function markRecentlyMutated(id: string, opts: { status?: string; deleted?: boolean }) {
+  if (!id) return;
+  RECENTLY_MUTATED.set(id, { ...opts, timestamp: Date.now() });
+}
+
+function getMutationLock(id: string) {
+  if (!id) return null;
+  const item = RECENTLY_MUTATED.get(id);
+  if (!item) return null;
+  if (Date.now() - item.timestamp > 20000) {
+    RECENTLY_MUTATED.delete(id);
+    return null;
+  }
+  return item;
+}
+
 // Store Mutation Actions
 export function updateAppointmentStatus(id: string, newStatus: Appointment["status"]) {
+  markRecentlyMutated(id, { status: newStatus });
+
   const current = getStoredAppointments();
   const updated = current.map((a) => (a.id === id ? { ...a, status: newStatus } : a));
   saveStoredAppointments(updated);
@@ -194,6 +214,8 @@ export function updateAppointmentStatus(id: string, newStatus: Appointment["stat
 }
 
 export function rescheduleAppointmentInStore(id: string, newDate: string, newTime: string) {
+  markRecentlyMutated(id, { status: "Scheduled" });
+
   const current = getStoredAppointments();
   const updated = current.map((a) =>
     a.id === id ? { ...a, date: newDate, time: newTime, status: "Scheduled" as const } : a
@@ -216,6 +238,10 @@ export function rescheduleAppointmentInStore(id: string, newDate: string, newTim
 }
 
 export function saveAppointmentInStore(apt: Partial<Appointment> & { id: string }) {
+  if (apt.status) {
+    markRecentlyMutated(apt.id, { status: apt.status });
+  }
+
   const current = getStoredAppointments();
   const idx = current.findIndex((a) => a.id === apt.id);
   if (idx !== -1) {
@@ -233,6 +259,8 @@ export function saveAppointmentInStore(apt: Partial<Appointment> & { id: string 
 }
 
 export function deleteAppointmentFromStore(id: string) {
+  markRecentlyMutated(id, { deleted: true });
+
   const current = getStoredAppointments();
   const target = current.find((a) => a.id === id);
   const updated = current.filter((a) => a.id !== id);
@@ -555,9 +583,18 @@ export async function syncSupabaseAppointmentsToStore() {
     }
 
     if (rows.length > 0) {
-      const syncedAppointments: Appointment[] = rows.map((row) => {
+      const syncedAppointments: Appointment[] = [];
+
+      rows.forEach((row) => {
         const bId = row.booking_id || row.id;
-        return {
+        if (!bId) return;
+
+        const lock = getMutationLock(bId);
+        if (lock?.deleted) return; // Exclude deleted item
+
+        const effectiveStatus = (lock?.status || row.status || "Pending") as any;
+
+        syncedAppointments.push({
           id: bId,
           patientId: row.patientId || `PAT-${bId}`,
           patientName: row.name || row.patientName || "Guest Patient",
@@ -570,20 +607,24 @@ export async function syncSupabaseAppointmentsToStore() {
           date: row.preferred_date || row.date || new Date().toISOString().split("T")[0],
           time: row.preferred_time || row.time || "Morning (09:00 AM - 12:00 PM)",
           type: row.type || "In-Person",
-          status: row.status || "Pending",
+          status: effectiveStatus,
           reason: row.message || row.reason || "General Consultation Request",
           notes: row.notes || "",
           avatar: row.avatar || "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80",
           createdAt: row.created_at || row.createdAt || new Date().toISOString()
-        };
+        });
       });
 
       const cleanSynced = deduplicateAppointments(syncedAppointments);
-      localStorage.setItem(STORAGE_KEYS.APPOINTMENTS, JSON.stringify(cleanSynced));
-      reconcilePatientsFromAppointments(cleanSynced);
-    }
+      const existingRaw = localStorage.getItem(STORAGE_KEYS.APPOINTMENTS) || "[]";
+      const newRaw = JSON.stringify(cleanSynced);
 
-    notifyChange();
+      if (existingRaw !== newRaw) {
+        localStorage.setItem(STORAGE_KEYS.APPOINTMENTS, newRaw);
+        reconcilePatientsFromAppointments(cleanSynced);
+        notifyChange();
+      }
+    }
   } catch (err) {
     console.warn("Supabase Sync Error:", err);
   }
