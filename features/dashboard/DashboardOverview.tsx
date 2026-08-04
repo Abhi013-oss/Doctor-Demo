@@ -25,30 +25,34 @@ import { PatientDetailDrawer } from "@/components/admin/PatientDetailDrawer";
 import Link from "next/link";
 
 export function DashboardOverview() {
-  const { appointments, patients, approveAppointment } = useLiveClinicData();
+  const { appointments = [], patients = [], approveAppointment } = useLiveClinicData();
   const { toast } = useToast();
   const { terms } = useBusiness();
   const [selectedPatient, setSelectedPatient] = useState<Patient | null>(null);
   const [isScheduleModalOpen, setIsScheduleModalOpen] = useState(false);
 
+  const safeAppointments = (appointments || []).filter((a) => a && typeof a === "object" && a.id);
+  const safePatients = (patients || []).filter((p) => p && typeof p === "object");
+
   const todayStr = new Date().toISOString().split("T")[0];
-  const todayAppointments = appointments.filter((a) => a.date === todayStr || !a.date);
-  const upcomingAppointments = appointments.filter((a) => a.status === "Approved" || a.status === "Scheduled" || a.status === "Waiting");
-  const completedAppointments = appointments.filter((a) => a.status === "Completed");
-  const cancelledAppointments = appointments.filter((a) => a.status === "Cancelled");
-  const pendingRequests = appointments.filter((a) => a.status === "Pending");
-  const totalPatientsCount = patients.length;
+  const todayAppointments = safeAppointments.filter((a) => a.date === todayStr || !a.date);
+  const upcomingAppointments = safeAppointments.filter((a) => a.status === "Approved" || a.status === "Scheduled" || a.status === "Waiting");
+  const completedAppointments = safeAppointments.filter((a) => a.status === "Completed");
+  const cancelledAppointments = safeAppointments.filter((a) => a.status === "Cancelled");
+  const pendingRequests = safeAppointments.filter((a) => a.status === "Pending");
+  const totalPatientsCount = safePatients.length;
 
   const pendingCount = pendingRequests.length;
-  const approvedCount = appointments.filter((a) => a.status === "Approved" || a.status === "Scheduled").length;
+  const approvedCount = safeAppointments.filter((a) => a.status === "Approved" || a.status === "Scheduled").length;
   const completedCount = completedAppointments.length;
   const cancelledCount = cancelledAppointments.length;
-  const rejectedCount = appointments.filter((a) => a.status === "Rejected").length;
-  const totalCount = appointments.length || 1;
+  const rejectedCount = safeAppointments.filter((a) => a.status === "Rejected").length;
+  const totalCount = safeAppointments.length || 1;
 
-  const handleQuickApprove = (id: string, name: string) => {
+  const handleQuickApprove = (id: string, name?: string) => {
+    if (!id) return;
     approveAppointment(id);
-    toast(`${terms.bookingLabel} Approved`, `Confirmed visit for ${name}`, "success");
+    toast(`${terms.bookingLabel} Approved`, `Confirmed visit for ${name || "patient"}`, "success");
   };
 
   return (
@@ -175,11 +179,11 @@ export function DashboardOverview() {
           <CardContent>
             <div className="h-40 flex items-end justify-between gap-2 pt-4 px-2 border-b border-slate-800">
               {[
-                { day: "Mon", count: Math.min(appointments.length, 6) },
+                { day: "Mon", count: Math.min(safeAppointments.length, 6) },
                 { day: "Tue", count: 2 },
                 { day: "Wed", count: 4 },
                 { day: "Thu", count: 1 },
-                { day: "Fri", count: Math.max(appointments.length, 5) },
+                { day: "Fri", count: Math.max(safeAppointments.length, 5) },
                 { day: "Sat", count: 0 },
                 { day: "Sun", count: 0 },
               ].map((item) => {
@@ -241,12 +245,12 @@ export function DashboardOverview() {
             <div className="p-4 rounded-2xl bg-slate-800/40 border border-slate-800 space-y-3">
               <div className="flex items-center justify-between text-xs">
                 <span className="text-slate-400">Total Booked Slots:</span>
-                <span className="font-bold text-white font-mono">{appointments.length} / 40</span>
+                <span className="font-bold text-white font-mono">{safeAppointments.length} / 40</span>
               </div>
               <div className="w-full bg-slate-800 h-3 rounded-full overflow-hidden p-0.5 border border-slate-700">
                 <div
                   className="bg-gradient-to-r from-purple-500 via-teal-400 to-emerald-400 h-full rounded-full"
-                  style={{ width: `${Math.min((appointments.length / 40) * 100, 100)}%` }}
+                  style={{ width: `${Math.min((safeAppointments.length / 40) * 100, 100)}%` }}
                 />
               </div>
             </div>
@@ -270,36 +274,42 @@ export function DashboardOverview() {
         </div>
 
         <div className="space-y-3">
-          {appointments.slice(0, 5).map((apt) => (
-            <Card key={apt.id} className="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-              <div className="flex items-center gap-3.5">
-                <img
-                  src={apt.avatar || "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80"}
-                  alt={apt.patientName}
-                  className="w-10 h-10 rounded-full object-cover border border-slate-700 shrink-0"
-                />
-                <div>
-                  <div className="flex items-center gap-2">
-                    <h4 className="text-xs font-bold text-white">{apt.patientName}</h4>
-                    <span className="font-mono text-[10px] text-teal-400 font-bold">{apt.id}</span>
+          {safeAppointments.length === 0 ? (
+            <div className="p-6 rounded-2xl bg-slate-900/60 border border-slate-800 text-center text-xs text-slate-400">
+              No recent appointment submissions in the queue yet.
+            </div>
+          ) : (
+            safeAppointments.slice(0, 5).map((apt) => (
+              <Card key={apt.id} className="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <div className="flex items-center gap-3.5">
+                  <img
+                    src={apt.avatar || "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80"}
+                    alt={apt.patientName || "Patient"}
+                    className="w-10 h-10 rounded-full object-cover border border-slate-700 shrink-0"
+                  />
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <h4 className="text-xs font-bold text-white">{apt.patientName || "Guest Patient"}</h4>
+                      <span className="font-mono text-[10px] text-teal-400 font-bold">{apt.id}</span>
+                    </div>
+                    <p className="text-[11px] text-slate-400">
+                      {apt.reason || "General Visit"} • <strong className="text-slate-300">{apt.department || "Cardiology"}</strong>
+                    </p>
                   </div>
-                  <p className="text-[11px] text-slate-400">
-                    {apt.reason} • <strong className="text-slate-300">{apt.department}</strong>
-                  </p>
                 </div>
-              </div>
 
-              <div className="flex items-center gap-3">
-                <Badge variant={apt.status === "Approved" ? "emerald" : "amber"}>{apt.status}</Badge>
+                <div className="flex items-center gap-3">
+                  <Badge variant={apt.status === "Approved" ? "emerald" : "amber"}>{apt.status || "Pending"}</Badge>
 
-                {apt.status === "Pending" && (
-                  <Button size="sm" variant="primary" onClick={() => handleQuickApprove(apt.id, apt.patientName)}>
-                    Approve
-                  </Button>
-                )}
-              </div>
-            </Card>
-          ))}
+                  {apt.status === "Pending" && (
+                    <Button size="sm" variant="primary" onClick={() => handleQuickApprove(apt.id, apt.patientName)}>
+                      Approve
+                    </Button>
+                  )}
+                </div>
+              </Card>
+            ))
+          )}
         </div>
       </div>
 
