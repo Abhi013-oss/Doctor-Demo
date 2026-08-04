@@ -31,15 +31,6 @@ export function middleware(request: NextRequest) {
     }
   }
 
-  // If user is already authenticated and tries to visit /login, redirect to /dashboard
-  if (pathname === "/login") {
-    const adminSession = request.cookies.get("doctor_admin_session")?.value;
-    const sbAccessToken = request.cookies.get("sb-access-token")?.value;
-    if (adminSession || sbAccessToken) {
-      return NextResponse.redirect(new URL("/dashboard", request.url));
-    }
-  }
-
   return NextResponse.next();
 }
 
@@ -50,6 +41,5 @@ export const config = {
     "/patients/:path*",
     "/messages/:path*",
     "/settings/:path*",
-    "/login",
   ],
 };

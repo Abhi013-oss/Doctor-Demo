@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import Link from "next/link";
 import {
   Stethoscope,
@@ -22,6 +22,12 @@ export default function LoginPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  useEffect(() => {
+    // Clear any stale cookies when arriving at the login page so it loads cleanly
+    document.cookie = "doctor_admin_session=; path=/; max-age=0; SameSite=Lax";
+    document.cookie = "sb-access-token=; path=/; max-age=0; SameSite=Lax";
+  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -45,11 +51,10 @@ export default function LoginPage() {
       };
       localStorage.setItem("doctor_admin_user", JSON.stringify(sessionUser));
 
-      // 3. Trigger Supabase auth login helper
+      // 3. Trigger auth login helper
       const res = await login(email.trim(), password);
 
       if (res && !res.success && res.error) {
-        // Fallback for custom error message if login failed
         setErrorMsg(res.error);
         setIsSubmitting(false);
         return;
