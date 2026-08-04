@@ -78,12 +78,27 @@ export function saveStoredAppointments(appointments: Appointment[]) {
 export function getStoredPatients(): Patient[] {
   if (typeof window === "undefined") return [];
   try {
+    const currentApts = getStoredAppointments();
+    if (!currentApts || currentApts.length === 0) return [];
+
     const raw = localStorage.getItem(STORAGE_KEYS.PATIENTS);
     if (!raw) return [];
     const parsed = JSON.parse(raw);
-    return Array.isArray(parsed)
-      ? parsed.filter((p) => p && typeof p === "object" && p.id && !p.id.startsWith("PAT-80"))
-      : [];
+    if (!Array.isArray(parsed)) return [];
+
+    return parsed.filter(
+      (p) =>
+        p &&
+        typeof p === "object" &&
+        p.id &&
+        !p.id.startsWith("PAT-80") &&
+        currentApts.some(
+          (a) =>
+            a.patientId === p.id ||
+            (a.patientEmail && p.email && a.patientEmail.toLowerCase() === p.email.toLowerCase()) ||
+            (a.patientPhone && p.phone && a.patientPhone === p.phone)
+        )
+    );
   } catch {
     return [];
   }
