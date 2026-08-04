@@ -66,20 +66,31 @@ DROP POLICY IF EXISTS "Public insert newsletter" ON public.newsletter;
 DROP POLICY IF EXISTS "Authenticated admin view newsletter" ON public.newsletter;
 
 -- 5. Appointments Table RLS Policies
--- Allow anyone (public/anonymous) to submit an appointment form
+-- Allow anyone (public/anonymous & authenticated) to insert, view, update, and delete appointments
+CREATE POLICY "Public select appointments"
+    ON public.appointments
+    FOR SELECT
+    TO anon, authenticated
+    USING (true);
+
 CREATE POLICY "Public insert appointments"
     ON public.appointments
     FOR INSERT
     TO anon, authenticated
     WITH CHECK (true);
 
--- Restrict viewing/modifying appointments to authenticated doctor/admin users
-CREATE POLICY "Authenticated admin manage appointments"
+CREATE POLICY "Public update appointments"
     ON public.appointments
-    FOR ALL
-    TO authenticated
+    FOR UPDATE
+    TO anon, authenticated
     USING (true)
     WITH CHECK (true);
+
+CREATE POLICY "Public delete appointments"
+    ON public.appointments
+    FOR DELETE
+    TO anon, authenticated
+    USING (true);
 
 -- 6. Contact Messages Table RLS Policies
 -- Allow public to send contact messages

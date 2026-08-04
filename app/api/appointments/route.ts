@@ -2,9 +2,38 @@ import { NextResponse } from "next/server";
 import { generateBookingId } from "@/utils/date";
 import { insertAppointment, isSupabaseConfigured, supabase } from "@/lib/supabase";
 import { sendAppointmentEmails, isResendConfigured } from "@/lib/email";
+import fs from "fs";
+import path from "path";
 
-// Server-side persistent in-memory appointments store for cross-device synchronization
-const GLOBAL_SERVER_APPOINTMENTS: Array<Record<string, unknown>> = [];
+const DATA_DIR = path.join(process.cwd(), ".data");
+const FILE_PATH = path.join(DATA_DIR, "server_appointments.json");
+
+function loadServerAppointments(): Array<Record<string, unknown>> {
+  try {
+    if (!fs.existsSync(DATA_DIR)) {
+      fs.mkdirSync(DATA_DIR, { recursive: true });
+    }
+    if (fs.existsSync(FILE_PATH)) {
+      const content = fs.readFileSync(FILE_PATH, "utf-8");
+      const parsed = JSON.parse(content);
+      if (Array.isArray(parsed)) return parsed;
+    }
+  } catch (err) {
+    console.warn("Failed to load server appointments file:", err);
+  }
+  return [];
+}
+
+function saveServerAppointments(data: Array<Record<string, unknown>>) {
+  try {
+    if (!fs.existsSync(DATA_DIR)) {
+      fs.mkdirSync(DATA_DIR, { recursive: true });
+    }
+    fs.writeFileSync(FILE_PATH, JSON.stringify(data, null, 2), "utf-8");
+  } catch (err) {
+    console.warn("Failed to save server appointments file:", err);
+  }
+}
 
 function sanitizeInput(str: unknown): string {
   if (typeof str !== "string") return "";
@@ -21,7 +50,8 @@ function sanitizeInput(str: unknown): string {
  */
 export async function GET() {
   try {
-    const allAppointments: Array<Record<string, unknown>> = [...GLOBAL_SERVER_APPOINTMENTS];
+    const fileAppointments = loadServerAppointments();
+    const allAppointments: Array<Record<string, unknown>> = [...fileAppointments];
 
     if (isSupabaseConfigured) {
       try {
@@ -67,7 +97,7 @@ export async function GET() {
   } catch (err: unknown) {
     console.error("GET /api/appointments Error:", err);
     return NextResponse.json(
-      { success: false, message: "Failed to fetch appointments", appointments: GLOBAL_SERVER_APPOINTMENTS },
+      { success: false, message: "Failed to fetch appointments", appointments: loadServerAppointments() },
       { status: 500 }
     );
   }
@@ -172,18 +202,20 @@ export async function POST(request: Request) {
       created_at: new Date().toISOString()
     };
 
-    // Save into server central memory store for immediate cross-device sync
-    const existsIndex = GLOBAL_SERVER_APPOINTMENTS.findIndex(
+    // Save into server central store for immediate cross-device sync
+    const currentList = loadServerAppointments();
+    const existsIndex = currentList.findIndex(
       (a) => a.booking_id === bookingId || a.id === bookingId
     );
     if (existsIndex === -1) {
-      GLOBAL_SERVER_APPOINTMENTS.unshift(appointmentPayload);
+      currentList.unshift(appointmentPayload);
     } else {
-      GLOBAL_SERVER_APPOINTMENTS[existsIndex] = {
-        ...GLOBAL_SERVER_APPOINTMENTS[existsIndex],
+      currentList[existsIndex] = {
+        ...currentList[existsIndex],
         ...appointmentPayload,
       };
     }
+    saveServerAppointments(currentList);
 
     // Save into Supabase database
     const { error: dbError } = await insertAppointment(appointmentPayload);
@@ -250,7 +282,8 @@ export async function PATCH(request: Request) {
       );
     }
 
-    const index = GLOBAL_SERVER_APPOINTMENTS.findIndex(
+    const currentList = loadServerAppointments();
+    const index = currentList.findIndex(
       (a) => a.booking_id === targetId || a.id === targetId
     );
 
@@ -277,17 +310,19 @@ export async function PATCH(request: Request) {
 
     let updatedRecord: Record<string, unknown>;
     if (index !== -1) {
-      GLOBAL_SERVER_APPOINTMENTS[index] = {
-        ...GLOBAL_SERVER_APPOINTMENTS[index],
+      currentList[index] = {
+        ...currentList[index],
         ...patchObj,
       };
-      updatedRecord = GLOBAL_SERVER_APPOINTMENTS[index];
+      updatedRecord = currentList[index];
     } else {
       patchObj.booking_id = targetId;
       patchObj.created_at = new Date().toISOString();
-      GLOBAL_SERVER_APPOINTMENTS.unshift(patchObj);
+      currentList.unshift(patchObj);
       updatedRecord = patchObj;
     }
+
+    saveServerAppointments(currentList);
 
     if (isSupabaseConfigured) {
       try {
@@ -344,12 +379,14 @@ export async function DELETE(request: Request) {
       );
     }
 
-    const removeIndex = GLOBAL_SERVER_APPOINTMENTS.findIndex(
+    const currentList = loadServerAppointments();
+    const removeIndex = currentList.findIndex(
       (a) => a.booking_id === cleanId || a.id === cleanId
     );
 
     if (removeIndex !== -1) {
-      GLOBAL_SERVER_APPOINTMENTS.splice(removeIndex, 1);
+      currentList.splice(removeIndex, 1);
+      saveServerAppointments(currentList);
     }
 
     if (isSupabaseConfigured) {
