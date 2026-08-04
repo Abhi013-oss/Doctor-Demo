@@ -78,27 +78,12 @@ export function saveStoredAppointments(appointments: Appointment[]) {
 export function getStoredPatients(): Patient[] {
   if (typeof window === "undefined") return [];
   try {
-    const currentApts = getStoredAppointments();
-    if (!currentApts || currentApts.length === 0) return [];
-
     const raw = localStorage.getItem(STORAGE_KEYS.PATIENTS);
     if (!raw) return [];
     const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed)) return [];
-
-    return parsed.filter(
-      (p) =>
-        p &&
-        typeof p === "object" &&
-        p.id &&
-        !p.id.startsWith("PAT-80") &&
-        currentApts.some(
-          (a) =>
-            a.patientId === p.id ||
-            (a.patientEmail && p.email && a.patientEmail.toLowerCase() === p.email.toLowerCase()) ||
-            (a.patientPhone && p.phone && a.patientPhone === p.phone)
-        )
-    );
+    return Array.isArray(parsed)
+      ? parsed.filter((p) => p && typeof p === "object" && p.id && !p.id.startsWith("PAT-80"))
+      : [];
   } catch {
     return [];
   }
@@ -394,12 +379,10 @@ export function addAppointmentFromWebsite(data: {
       avatar: "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80"
     };
     currentPatients.unshift(patient);
-    saveStoredPatients(currentPatients);
   } else {
     patient.totalVisits += 1;
     patient.lastVisit = data.date || new Date().toISOString().split("T")[0];
     if (data.department) patient.disease = data.department;
-    saveStoredPatients(currentPatients);
   }
 
   const nowStr = new Date().toISOString();
@@ -424,6 +407,7 @@ export function addAppointmentFromWebsite(data: {
 
   currentAppointments.unshift(newAppointment);
   saveStoredAppointments(currentAppointments);
+  saveStoredPatients(currentPatients);
   return newAppointment;
 }
 
