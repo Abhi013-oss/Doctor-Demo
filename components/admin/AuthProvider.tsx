@@ -21,7 +21,11 @@ const AuthContext = createContext<AuthContextType>({
 });
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [user, setUser] = useState<AdminUser | null>(() => {
+  const [user, setUser] = useState<AdminUser | null>(DEMO_ADMIN_USER);
+  const [isLoading, setIsLoading] = useState(false);
+
+  useEffect(() => {
+    // 1. Safely hydrate user from localStorage on client side after mount to avoid hydration mismatch
     if (typeof window !== "undefined") {
       try {
         const savedUser = localStorage.getItem("doctor_admin_user");
@@ -31,42 +35,44 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             parsed.name = DEMO_ADMIN_USER.name;
             localStorage.setItem("doctor_admin_user", JSON.stringify(parsed));
           }
-          return parsed;
+          setUser(parsed);
         }
-      } catch {
-        return DEMO_ADMIN_USER;
+      } catch (err) {
+        console.warn("Auth hydration error:", err);
       }
     }
-    return DEMO_ADMIN_USER;
-  });
 
-  const [isLoading, setIsLoading] = useState(false);
-  const router = useRouter();
-
-  useEffect(() => {
-    // Supabase auth state change subscription
+    // 2. Supabase auth state change subscription
     if (isSupabaseConfigured) {
-      const { data: authListener } = supabase.auth.onAuthStateChange((event, session) => {
-        if (event === "SIGNED_IN" && session?.user) {
-          const authUser: AdminUser = {
-            id: session.user.id,
-            email: session.user.email || "",
-            name: session.user.user_metadata?.full_name || DEMO_ADMIN_USER.name,
-            role: "Medical Director",
-            avatar: DEMO_ADMIN_USER.avatar,
-            department: "Cardiology"
-          };
-          setUser(authUser);
-          localStorage.setItem("doctor_admin_user", JSON.stringify(authUser));
-        } else if (event === "SIGNED_OUT") {
-          setUser(null);
-          localStorage.removeItem("doctor_admin_user");
-        }
-      });
+      try {
+        const { data: authListener } = supabase.auth.onAuthStateChange((event, session) => {
+          if (event === "SIGNED_IN" && session?.user) {
+            const authUser: AdminUser = {
+              id: session.user.id,
+              email: session.user.email || "",
+              name: session.user.user_metadata?.full_name || DEMO_ADMIN_USER.name,
+              role: "Medical Director",
+              avatar: DEMO_ADMIN_USER.avatar,
+              department: "Cardiology"
+            };
+            setUser(authUser);
+            if (typeof window !== "undefined") {
+              localStorage.setItem("doctor_admin_user", JSON.stringify(authUser));
+            }
+          } else if (event === "SIGNED_OUT") {
+            setUser(null);
+            if (typeof window !== "undefined") {
+              localStorage.removeItem("doctor_admin_user");
+            }
+          }
+        });
 
-      return () => {
-        authListener.subscription.unsubscribe();
-      };
+        return () => {
+          authListener.subscription.unsubscribe();
+        };
+      } catch (err) {
+        console.warn("Supabase auth listener:", err);
+      }
     }
   }, []);
 
@@ -77,7 +83,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     if (res.user) {
       setUser(res.user);
-      localStorage.setItem("doctor_admin_user", JSON.stringify(res.user));
+      if (typeof window !== "undefined") {
+        localStorage.setItem("doctor_admin_user", JSON.stringify(res.user));
+      }
       return { success: true };
     } else {
       return { success: false, error: res.error || "Authentication failed" };
@@ -88,7 +96,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setIsLoading(true);
     await logoutAdminUser();
     setUser(null);
-    localStorage.removeItem("doctor_admin_user");
+    if (typeof window !== "undefined") {
+      localStorage.removeItem("doctor_admin_user");
+    }
     setIsLoading(false);
     window.location.href = "/login";
   };
