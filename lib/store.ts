@@ -37,6 +37,35 @@ export function saveStoredClinicSettings(settings: ClinicSettings) {
   }
 }
 
+function deduplicateAppointments(list: Appointment[]): Appointment[] {
+  const seenIds = new Set<string>();
+  const seenSignatures = new Set<string>();
+  const result: Appointment[] = [];
+
+  for (const apt of list) {
+    if (!apt || typeof apt !== "object" || !apt.id) continue;
+    if (apt.id.startsWith("APT-100")) continue;
+    if (seenIds.has(apt.id)) continue;
+
+    const sigKey = [
+      (apt.patientPhone || apt.patientEmail || apt.patientName || "").toLowerCase().trim(),
+      (apt.date || "").trim(),
+      (apt.time || "").trim(),
+      (apt.department || "").toLowerCase().trim()
+    ].join("::");
+
+    if (sigKey !== "::::" && seenSignatures.has(sigKey)) {
+      continue;
+    }
+
+    seenIds.add(apt.id);
+    if (sigKey !== "::::") seenSignatures.add(sigKey);
+    result.push(apt);
+  }
+
+  return result;
+}
+
 // 1. Appointments Storage Helpers
 export function getStoredAppointments(): Appointment[] {
   if (typeof window === "undefined") return [];
@@ -44,9 +73,7 @@ export function getStoredAppointments(): Appointment[] {
     const raw = localStorage.getItem(STORAGE_KEYS.APPOINTMENTS);
     if (!raw) return [];
     const parsed = JSON.parse(raw);
-    return Array.isArray(parsed)
-      ? parsed.filter((a) => a && typeof a === "object" && a.id && !a.id.startsWith("APT-100"))
-      : [];
+    return Array.isArray(parsed) ? deduplicateAppointments(parsed) : [];
   } catch {
     return [];
   }
@@ -54,7 +81,7 @@ export function getStoredAppointments(): Appointment[] {
 
 export function saveStoredAppointments(appointments: Appointment[]) {
   if (typeof window !== "undefined") {
-    const clean = (appointments || []).filter((a) => a && typeof a === "object" && a.id);
+    const clean = deduplicateAppointments(appointments || []);
     localStorage.setItem(STORAGE_KEYS.APPOINTMENTS, JSON.stringify(clean));
     notifyChange();
   }
@@ -284,8 +311,15 @@ export function addAppointmentFromWebsite(data: {
 
   const bookingCode = data.bookingId || `APT-${Math.floor(10000 + Math.random() * 90000)}`;
 
-  // Avoid duplicate entries if already in store, but update status if changed
-  const existingIndex = currentAppointments.findIndex((a) => a.id === bookingCode);
+  // Avoid duplicate entries if already in store by ID or by patient/date/time signature
+  const existingIndex = currentAppointments.findIndex(
+    (a) =>
+      a.id === bookingCode ||
+      (a.date === data.date &&
+        a.time === data.time &&
+        ((data.patientPhone && a.patientPhone === data.patientPhone) ||
+          (data.patientEmail && a.patientEmail && a.patientEmail.toLowerCase() === data.patientEmail.toLowerCase())))
+  );
   if (existingIndex !== -1) {
     if (data.status && currentAppointments[existingIndex].status !== data.status) {
       currentAppointments[existingIndex] = {

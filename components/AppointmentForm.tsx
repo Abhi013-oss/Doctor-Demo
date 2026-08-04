@@ -19,6 +19,7 @@ import {
 } from "lucide-react";
 import { SPECIALIZATIONS } from "@/lib/data";
 import { addAppointmentFromWebsite } from "@/lib/store";
+import { generateBookingId } from "@/utils/date";
 
 interface AppointmentFormProps {
   compact?: boolean;
@@ -113,22 +114,32 @@ export default function AppointmentForm({
     setErrors({});
 
     try {
+      const bookingId = generateBookingId();
+
       // Synchronously record appointment in real-time store for Admin Dashboard visibility
       const createdApt = addAppointmentFromWebsite({
+        bookingId,
         patientName: formData.name.trim(),
         patientPhone: formData.phone.trim(),
         patientEmail: formData.email.trim(),
         date: formData.date,
         time: formData.time,
         department: formData.disease,
-        reason: formData.message || "General Consultation Request"
+        reason: formData.message || "General Consultation Request",
+        age: Number(formData.age),
+        gender: formData.gender,
+        status: "Pending"
       });
 
       // API Call for Supabase / Email Notification
       await fetch("/api/appointments", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(formData),
+        body: JSON.stringify({
+          ...formData,
+          bookingId,
+          status: "Pending"
+        }),
       }).catch(() => {});
 
       setSubmitSuccess({

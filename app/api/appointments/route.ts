@@ -95,7 +95,7 @@ export async function POST(request: Request) {
       );
     }
 
-    const { name, phone, email, age, gender, disease, date, time, message } = body;
+    const { name, phone, email, age, gender, disease, date, time, message, bookingId: incomingBookingId, booking_id: altBookingId, status: incomingStatus } = body;
 
     const errors: Record<string, string> = {};
 
@@ -156,7 +156,9 @@ export async function POST(request: Request) {
       );
     }
 
-    const bookingId = generateBookingId();
+    const rawBookingId = sanitizeInput(incomingBookingId || altBookingId);
+    const bookingId = rawBookingId || generateBookingId();
+    const cleanStatus = sanitizeInput(incomingStatus) || "Pending";
 
     const appointmentPayload = {
       booking_id: bookingId,
@@ -169,14 +171,21 @@ export async function POST(request: Request) {
       preferred_date: cleanDate,
       preferred_time: cleanTime,
       message: cleanMessage,
-      status: "Confirmed",
+      status: cleanStatus,
       created_at: new Date().toISOString()
     };
 
     // Save into server central memory store for immediate cross-device sync
-    const exists = GLOBAL_SERVER_APPOINTMENTS.some((a) => a.booking_id === bookingId);
-    if (!exists) {
+    const existsIndex = GLOBAL_SERVER_APPOINTMENTS.findIndex(
+      (a) => a.booking_id === bookingId || a.id === bookingId
+    );
+    if (existsIndex === -1) {
       GLOBAL_SERVER_APPOINTMENTS.unshift(appointmentPayload);
+    } else {
+      GLOBAL_SERVER_APPOINTMENTS[existsIndex] = {
+        ...GLOBAL_SERVER_APPOINTMENTS[existsIndex],
+        ...appointmentPayload,
+      };
     }
 
     // Save into Supabase database
