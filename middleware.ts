@@ -1,37 +1,38 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 
-// Routes that require doctor/admin authentication
-const PROTECTED_ROUTES = [
-  "/dashboard",
-  "/appointments",
-  "/patients",
-  "/messages",
-  "/settings",
-];
-
 export function middleware(request: NextRequest) {
-  const { pathname } = request.nextUrl;
+  try {
+    const { pathname } = request.nextUrl;
 
-  // Check if requested path starts with any protected route prefix
-  const isProtectedRoute = PROTECTED_ROUTES.some(
-    (route) => pathname === route || pathname.startsWith(`${route}/`)
-  );
+    const isProtectedRoute =
+      pathname === "/dashboard" ||
+      pathname.startsWith("/dashboard/") ||
+      pathname === "/appointments" ||
+      pathname.startsWith("/appointments/") ||
+      pathname === "/patients" ||
+      pathname.startsWith("/patients/") ||
+      pathname === "/messages" ||
+      pathname.startsWith("/messages/") ||
+      pathname === "/settings" ||
+      pathname.startsWith("/settings/");
 
-  if (isProtectedRoute) {
-    const adminSession = request.cookies.get("doctor_admin_session")?.value;
-    const sbAccessToken = request.cookies.get("sb-access-token")?.value;
+    if (isProtectedRoute) {
+      const adminSession = request.cookies.get("doctor_admin_session")?.value;
+      const sbAccessToken = request.cookies.get("sb-access-token")?.value;
 
-    const isAuthenticated = Boolean(adminSession || sbAccessToken);
-
-    if (!isAuthenticated) {
-      const loginUrl = new URL("/login", request.url);
-      loginUrl.searchParams.set("callbackUrl", pathname);
-      return NextResponse.redirect(loginUrl);
+      if (!adminSession && !sbAccessToken) {
+        const redirectUrl = request.nextUrl.clone();
+        redirectUrl.pathname = "/login";
+        return NextResponse.redirect(redirectUrl);
+      }
     }
-  }
 
-  return NextResponse.next();
+    return NextResponse.next();
+  } catch (err) {
+    console.warn("Middleware error:", err);
+    return NextResponse.next();
+  }
 }
 
 export const config = {
