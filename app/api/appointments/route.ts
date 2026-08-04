@@ -8,6 +8,8 @@ import path from "path";
 const DATA_DIR = path.join(process.cwd(), ".data");
 const FILE_PATH = path.join(DATA_DIR, "server_appointments.json");
 
+let GLOBAL_SERVER_STORE: Array<Record<string, unknown>> = [];
+
 function loadServerAppointments(): Array<Record<string, unknown>> {
   try {
     if (!fs.existsSync(DATA_DIR)) {
@@ -16,12 +18,19 @@ function loadServerAppointments(): Array<Record<string, unknown>> {
     if (fs.existsSync(FILE_PATH)) {
       const content = fs.readFileSync(FILE_PATH, "utf-8");
       const parsed = JSON.parse(content);
-      if (Array.isArray(parsed)) return parsed;
+      if (Array.isArray(parsed)) {
+        parsed.forEach((item) => {
+          const idKey = item.booking_id || item.id;
+          if (idKey && !GLOBAL_SERVER_STORE.some((g) => (g.booking_id || g.id) === idKey)) {
+            GLOBAL_SERVER_STORE.push(item);
+          }
+        });
+      }
     }
   } catch (err) {
     console.warn("Failed to load server appointments file:", err);
   }
-  return [];
+  return GLOBAL_SERVER_STORE;
 }
 
 function saveServerAppointments(data: Array<Record<string, unknown>>) {
@@ -29,7 +38,8 @@ function saveServerAppointments(data: Array<Record<string, unknown>>) {
     if (!fs.existsSync(DATA_DIR)) {
       fs.mkdirSync(DATA_DIR, { recursive: true });
     }
-    fs.writeFileSync(FILE_PATH, JSON.stringify(data, null, 2), "utf-8");
+    GLOBAL_SERVER_STORE = [...data];
+    fs.writeFileSync(FILE_PATH, JSON.stringify(GLOBAL_SERVER_STORE, null, 2), "utf-8");
   } catch (err) {
     console.warn("Failed to save server appointments file:", err);
   }
