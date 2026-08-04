@@ -471,11 +471,20 @@ export async function syncSupabaseAppointmentsToStore() {
       });
     });
 
-    // Purge local appointments that were deleted on the server across devices
+    // Purge local appointments that were deleted on the server across devices,
+    // but ALWAYS protect recently booked local appointments (< 10 mins) so sync-in-flight is never wiped.
     if (serverIds.size > 0 && currentLocal.length > 0) {
+      const tenMinutesAgo = Date.now() - 10 * 60 * 1000;
       const reconciled = currentLocal.filter((localApt) => {
         if (!localApt.id || localApt.id.startsWith("APT-100")) return true;
-        return serverIds.has(localApt.id);
+        if (serverIds.has(localApt.id)) return true;
+        if (localApt.createdAt) {
+          const createdTime = new Date(localApt.createdAt).getTime();
+          if (!isNaN(createdTime) && createdTime > tenMinutesAgo) {
+            return true;
+          }
+        }
+        return false;
       });
       if (reconciled.length !== currentLocal.length) {
         saveStoredAppointments(reconciled);
