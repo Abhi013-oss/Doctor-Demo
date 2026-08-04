@@ -364,15 +364,13 @@ export async function DELETE(request: Request) {
       );
     }
 
-    const currentList = loadServerAppointments();
-    const removeIndex = currentList.findIndex(
-      (a) => a.booking_id === cleanId || a.id === cleanId
-    );
-
-    if (removeIndex !== -1) {
-      currentList.splice(removeIndex, 1);
-      saveServerAppointments(currentList);
-    }
+    let currentList = loadServerAppointments();
+    // Filter out ALL occurrences matching cleanId or targetId
+    currentList = currentList.filter((a) => {
+      const bId = String(a.booking_id || a.id || "").trim();
+      return bId !== cleanId && bId !== targetId;
+    });
+    saveServerAppointments(currentList);
 
     if (isSupabaseConfigured) {
       try {

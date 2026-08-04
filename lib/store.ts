@@ -9,8 +9,26 @@ const STORAGE_KEYS = {
   APPOINTMENTS: "dc_live_appointments",
   PATIENTS: "dc_live_patients",
   MESSAGES: "dc_live_messages",
-  SETTINGS: "dc_clinic_settings"
+  SETTINGS: "dc_clinic_settings",
+  DELETED_APPOINTMENTS: "dc_deleted_appointments"
 };
+
+export function getDeletedAppointmentIds(): Set<string> {
+  if (typeof window === "undefined") return new Set();
+  try {
+    const raw = localStorage.getItem(STORAGE_KEYS.DELETED_APPOINTMENTS);
+    return raw ? new Set(JSON.parse(raw)) : new Set();
+  } catch {
+    return new Set();
+  }
+}
+
+export function recordDeletedAppointmentId(id: string) {
+  if (typeof window === "undefined" || !id) return;
+  const deletedSet = getDeletedAppointmentIds();
+  deletedSet.add(id);
+  localStorage.setItem(STORAGE_KEYS.DELETED_APPOINTMENTS, JSON.stringify(Array.from(deletedSet)));
+}
 
 const EVENT_NAME = "dc_store_updated";
 
@@ -260,6 +278,7 @@ export function saveAppointmentInStore(apt: Partial<Appointment> & { id: string 
 
 export function deleteAppointmentFromStore(id: string) {
   markRecentlyMutated(id, { deleted: true });
+  recordDeletedAppointmentId(id);
 
   const current = getStoredAppointments();
   const target = current.find((a) => a.id === id);
@@ -584,13 +603,15 @@ export async function syncSupabaseAppointmentsToStore() {
 
     if (rows.length > 0) {
       const syncedAppointments: Appointment[] = [];
+      const deletedSet = getDeletedAppointmentIds();
 
       rows.forEach((row) => {
         const bId = row.booking_id || row.id;
         if (!bId) return;
 
+        if (deletedSet.has(bId)) return; // Exclude permanently deleted items
         const lock = getMutationLock(bId);
-        if (lock?.deleted) return; // Exclude deleted item
+        if (lock?.deleted) return;
 
         const effectiveStatus = (lock?.status || row.status || "Pending") as any;
 
