@@ -16,7 +16,7 @@ import {
 import { useAuth } from "./AuthProvider";
 import { useLiveClinicData } from "@/lib/store";
 import { CLINIC_INFO } from "@/lib/data";
-import { getCurrentClinicStatus, ClinicStatusInfo } from "@/lib/clinic-status";
+import { getCurrentClinicStatus, DEFAULT_CLINIC_STATUS, ClinicStatusInfo } from "@/lib/clinic-status";
 import { useBusiness } from "@/hooks/useBusiness";
 
 interface SidebarProps {
@@ -27,9 +27,9 @@ interface SidebarProps {
 export function Sidebar({ mobileOpen = false, setMobileOpen }: SidebarProps) {
   const pathname = usePathname();
   const { user, logout } = useAuth();
-  const { appointments } = useLiveClinicData();
+  const { appointments = [] } = useLiveClinicData();
   const { terms } = useBusiness();
-  const [statusInfo, setStatusInfo] = useState<ClinicStatusInfo>(getCurrentClinicStatus);
+  const [statusInfo, setStatusInfo] = useState<ClinicStatusInfo>(DEFAULT_CLINIC_STATUS);
 
   useEffect(() => {
     setStatusInfo(getCurrentClinicStatus());
@@ -38,17 +38,21 @@ export function Sidebar({ mobileOpen = false, setMobileOpen }: SidebarProps) {
     }, 30000);
 
     const handleUpdate = () => setStatusInfo(getCurrentClinicStatus());
-    window.addEventListener("dc_store_updated", handleUpdate);
-    window.addEventListener("storage", handleUpdate);
+    if (typeof window !== "undefined") {
+      window.addEventListener("dc_store_updated", handleUpdate);
+      window.addEventListener("storage", handleUpdate);
+    }
 
     return () => {
       clearInterval(interval);
-      window.removeEventListener("dc_store_updated", handleUpdate);
-      window.removeEventListener("storage", handleUpdate);
+      if (typeof window !== "undefined") {
+        window.removeEventListener("dc_store_updated", handleUpdate);
+        window.removeEventListener("storage", handleUpdate);
+      }
     };
   }, []);
 
-  const activeAppointmentsCount = appointments.length;
+  const activeAppointmentsCount = (appointments || []).length;
 
   const navItems = [
     {
@@ -98,6 +102,7 @@ export function Sidebar({ mobileOpen = false, setMobileOpen }: SidebarProps) {
                 Admin
               </span>
             </div>
+            <p className="text-[11px] text-slate-400 font-medium">{terms.facilityLabel} Operations</p>
           </div>
         </Link>
 
@@ -112,137 +117,119 @@ export function Sidebar({ mobileOpen = false, setMobileOpen }: SidebarProps) {
         )}
       </div>
 
-      {/* Main Navigation */}
-      <div className="flex-1 py-6 px-3 space-y-1.5 overflow-y-auto">
-        <div className="px-3 pb-2 text-[10px] font-semibold tracking-wider text-slate-400 uppercase">
-          Main Console
+      {/* Main Navigation Items */}
+      <div className="flex-1 py-4 px-3 space-y-1.5 overflow-y-auto">
+        <div className="px-3 pb-2 text-[10px] font-bold uppercase tracking-wider text-slate-500">
+          Core Workspaces
         </div>
-
         {navItems.map((item) => {
-          const isActive = pathname === item.href || (item.href !== "/dashboard" && pathname?.startsWith(item.href));
           const Icon = item.icon;
+          const isActive = pathname === item.href || pathname?.startsWith(`${item.href}/`);
 
           return (
             <Link
-              key={item.name}
+              key={item.href}
               href={item.href}
               onClick={() => setMobileOpen?.(false)}
-              className={`group relative flex items-center justify-between px-3.5 py-3 rounded-xl text-sm font-medium transition-all duration-200 ${
+              className={`flex items-center justify-between px-3 py-2.5 rounded-xl font-medium text-xs transition-all duration-200 group ${
                 isActive
-                  ? "bg-gradient-to-r from-teal-500/20 via-teal-500/10 to-transparent text-white font-semibold border-l-4 border-teal-400 shadow-sm"
-                  : "text-slate-400 hover:text-slate-100 hover:bg-slate-800/60"
+                  ? "bg-gradient-to-r from-teal-500/20 to-emerald-500/10 text-teal-300 border border-teal-500/30 shadow-md shadow-teal-500/5 font-semibold"
+                  : "text-slate-400 hover:text-slate-200 hover:bg-slate-800/60"
               }`}
             >
               <div className="flex items-center gap-3">
                 <Icon
-                  className={`w-5 h-5 transition-colors ${
-                    isActive ? "text-teal-400" : "text-slate-400 group-hover:text-teal-300"
+                  className={`w-4.5 h-4.5 transition-colors ${
+                    isActive ? "text-teal-400" : "text-slate-400 group-hover:text-slate-200"
                   }`}
                 />
                 <span>{item.name}</span>
               </div>
 
               {item.badge && (
-                <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-slate-800 text-slate-300 border border-slate-700">
+                <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-full bg-teal-500/20 text-teal-300 border border-teal-500/30">
                   {item.badge}
                 </span>
               )}
             </Link>
           );
         })}
+      </div>
 
-        {/* Dynamic Real-time Status Banner */}
-        <div className="pt-6 px-2">
-          <div className="p-3.5 rounded-xl bg-slate-800/50 border border-slate-800/80 backdrop-blur-sm">
-            <div className="flex items-center justify-between text-xs font-medium text-slate-300 mb-2">
+      {/* Clinic Operating Hours Status Card */}
+      <div className="p-3 border-t border-slate-800/80">
+        <div className="p-3.5 rounded-2xl bg-slate-950/60 border border-slate-800/80 space-y-2">
+          <div className="flex items-center justify-between">
+            <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Clinic Status</span>
+            <div className="flex items-center gap-1.5">
               <span
-                className={`flex items-center gap-1.5 font-semibold ${
-                  statusInfo.badgeColor === "emerald"
-                    ? "text-emerald-400"
-                    : statusInfo.badgeColor === "rose"
-                    ? "text-rose-400"
-                    : statusInfo.badgeColor === "amber"
-                    ? "text-amber-400"
-                    : "text-slate-400"
+                className={`w-2 h-2 rounded-full ${
+                  statusInfo.isOpen ? "bg-emerald-400 animate-pulse" : "bg-rose-500"
+                }`}
+              />
+              <span
+                className={`text-[10px] font-mono font-bold uppercase px-1.5 py-0.5 rounded border ${
+                  statusInfo.isOpen
+                    ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20"
+                    : "bg-rose-500/10 text-rose-400 border-rose-500/20"
                 }`}
               >
-                <span className="relative flex h-2 w-2">
-                  {statusInfo.isOpen && (
-                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                  )}
-                  <span
-                    className={`relative inline-flex rounded-full h-2 w-2 ${
-                      statusInfo.badgeColor === "emerald"
-                        ? "bg-emerald-500"
-                        : statusInfo.badgeColor === "rose"
-                        ? "bg-rose-500"
-                        : statusInfo.badgeColor === "amber"
-                        ? "bg-amber-500"
-                        : "bg-slate-500"
-                    }`}
-                  ></span>
-                </span>
-                {statusInfo.statusText}
-              </span>
-              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
                 {statusInfo.badgeLabel}
               </span>
             </div>
-            <p className="text-[11px] text-slate-400 leading-relaxed">
-              {statusInfo.subtext}
-            </p>
           </div>
+
+          <div className="text-xs font-bold text-white">{statusInfo.statusText}</div>
+          <div className="text-[10px] text-slate-400 leading-relaxed truncate">{statusInfo.hoursText}</div>
         </div>
       </div>
 
-      {/* User Footer Profile & Logout */}
-      <div className="p-4 border-t border-slate-800 bg-slate-950/40">
-        <div className="flex items-center justify-between gap-3">
-          <div className="flex items-center gap-3 min-w-0">
+      {/* User Footer Account Block */}
+      <div className="p-4 border-t border-slate-800 bg-slate-950/40 flex items-center justify-between gap-3">
+        <div className="flex items-center gap-3 min-w-0">
+          <div className="relative shrink-0">
             <img
               src={user?.avatar || "https://images.unsplash.com/photo-1622253692010-333f2da6031d?w=150&auto=format&fit=crop&q=80"}
-              alt={user?.name || CLINIC_INFO.doctor.name.split(',')[0]}
-              className="w-10 h-10 rounded-full object-cover border-2 border-teal-500/30 ring-2 ring-slate-900"
-              suppressHydrationWarning
+              alt={user?.name || "Doctor Admin"}
+              className="w-9 h-9 rounded-full object-cover border border-slate-700 shadow-sm"
             />
-            <div className="min-w-0">
-              <p className="text-xs font-bold text-white truncate" suppressHydrationWarning>
-                {user?.name || CLINIC_INFO.doctor.name.split(',')[0]}
-              </p>
-              <p className="text-[11px] text-slate-400 truncate flex items-center gap-1">
-                <ShieldCheck className="w-3 h-3 text-teal-400 inline" />
-                {user?.role || "Administrator"}
-              </p>
-            </div>
+            <span className="absolute bottom-0 right-0 w-2.5 h-2.5 bg-emerald-400 border-2 border-slate-900 rounded-full" />
           </div>
-
-          <button
-            onClick={() => logout()}
-            title="Logout of Admin"
-            className="p-2 rounded-lg text-slate-400 hover:text-red-400 hover:bg-red-500/10 transition-colors cursor-pointer"
-          >
-            <LogOut className="w-5 h-5" />
-          </button>
+          <div className="min-w-0">
+            <div className="text-xs font-bold text-white truncate flex items-center gap-1">
+              <span>{user?.name || "Dr. Alexander Vance"}</span>
+              <ShieldCheck className="w-3.5 h-3.5 text-teal-400 shrink-0" />
+            </div>
+            <div className="text-[10px] text-slate-400 truncate">{user?.email || "admin@doctor.com"}</div>
+          </div>
         </div>
+
+        <button
+          onClick={logout}
+          className="p-2 rounded-xl text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 transition-colors shrink-0"
+          title="Sign Out of Admin Portal"
+        >
+          <LogOut className="w-4 h-4" />
+        </button>
       </div>
     </div>
   );
 
   return (
     <>
-      {/* Desktop Sidebar */}
-      <aside className="hidden md:flex flex-col w-64 h-screen sticky top-0 z-30 shrink-0">
+      {/* Desktop Sidebar Column */}
+      <aside className="hidden md:block w-64 shrink-0 h-screen sticky top-0">
         {content}
       </aside>
 
-      {/* Mobile Drawer Sidebar */}
+      {/* Mobile Drawer Overlay */}
       {mobileOpen && (
-        <div className="fixed inset-0 z-50 md:hidden flex">
+        <div className="md:hidden fixed inset-0 z-50 flex">
           <div
             className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm transition-opacity"
             onClick={() => setMobileOpen?.(false)}
           />
-          <div className="relative flex-1 max-w-xs w-full h-full z-10 animate-in slide-in-from-left duration-300">
+          <div className="relative flex-1 max-w-xs w-full bg-slate-900 z-10 animate-in slide-in-from-left duration-200">
             {content}
           </div>
         </div>
