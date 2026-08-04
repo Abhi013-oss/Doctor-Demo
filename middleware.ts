@@ -10,7 +10,6 @@ export const config = {
     "/dashboard/:path*",
     "/appointments/:path*",
     "/patients/:path*",
-    "/messages/:path*",
     "/settings/:path*",
   ],
 };
