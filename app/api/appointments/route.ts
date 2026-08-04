@@ -9,11 +9,8 @@ const GLOBAL_SERVER_APPOINTMENTS: Array<Record<string, unknown>> = [];
 function sanitizeInput(str: unknown): string {
   if (typeof str !== "string") return "";
   return str
-    .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#x27;")
     .trim();
 }
 
@@ -216,6 +213,165 @@ export async function POST(request: Request) {
         success: false,
         message: "An internal server error occurred.",
       },
+      { status: 500 }
+    );
+  }
+}
+
+/**
+ * PATCH /api/appointments
+ * Updates an appointment (status, date, time, department, notes) across all devices
+ */
+export async function PATCH(request: Request) {
+  try {
+    const body = await request.json().catch(() => ({}));
+    const {
+      id,
+      bookingId,
+      booking_id,
+      status,
+      date,
+      preferred_date,
+      time,
+      preferred_time,
+      disease,
+      department,
+      doctorName,
+      reason,
+      notes,
+    } = body || {};
+
+    const targetId = sanitizeInput(id || bookingId || booking_id);
+
+    if (!targetId) {
+      return NextResponse.json(
+        { success: false, message: "Appointment ID is required." },
+        { status: 400 }
+      );
+    }
+
+    const index = GLOBAL_SERVER_APPOINTMENTS.findIndex(
+      (a) => a.booking_id === targetId || a.id === targetId
+    );
+
+    const patchObj: Record<string, unknown> = {};
+    if (status) patchObj.status = sanitizeInput(status);
+    if (date || preferred_date) {
+      const cleanD = sanitizeInput(date || preferred_date);
+      patchObj.preferred_date = cleanD;
+      patchObj.date = cleanD;
+    }
+    if (time || preferred_time) {
+      const cleanT = sanitizeInput(time || preferred_time);
+      patchObj.preferred_time = cleanT;
+      patchObj.time = cleanT;
+    }
+    if (disease || department) {
+      const cleanDept = sanitizeInput(disease || department);
+      patchObj.disease = cleanDept;
+      patchObj.department = cleanDept;
+    }
+    if (doctorName) patchObj.doctorName = sanitizeInput(doctorName);
+    if (reason) patchObj.reason = sanitizeInput(reason);
+    if (notes) patchObj.notes = sanitizeInput(notes);
+
+    let updatedRecord: Record<string, unknown>;
+    if (index !== -1) {
+      GLOBAL_SERVER_APPOINTMENTS[index] = {
+        ...GLOBAL_SERVER_APPOINTMENTS[index],
+        ...patchObj,
+      };
+      updatedRecord = GLOBAL_SERVER_APPOINTMENTS[index];
+    } else {
+      patchObj.booking_id = targetId;
+      patchObj.created_at = new Date().toISOString();
+      GLOBAL_SERVER_APPOINTMENTS.unshift(patchObj);
+      updatedRecord = patchObj;
+    }
+
+    if (isSupabaseConfigured) {
+      try {
+        const sbUpdateData: Record<string, unknown> = {};
+        if (patchObj.status) sbUpdateData.status = patchObj.status;
+        if (patchObj.preferred_date) sbUpdateData.preferred_date = patchObj.preferred_date;
+        if (patchObj.preferred_time) sbUpdateData.preferred_time = patchObj.preferred_time;
+        if (patchObj.disease) sbUpdateData.disease = patchObj.disease;
+
+        await supabase
+          .from("appointments")
+          .update(sbUpdateData)
+          .or(`id.eq.${targetId},booking_id.eq.${targetId}`);
+      } catch (err) {
+        console.warn("Supabase update in PATCH /api/appointments:", err);
+      }
+    }
+
+    return NextResponse.json({
+      success: true,
+      message: `Appointment ${targetId} updated successfully.`,
+      appointment: updatedRecord,
+    });
+  } catch (err: unknown) {
+    console.error("PATCH /api/appointments Error:", err);
+    return NextResponse.json(
+      { success: false, message: "Failed to update appointment" },
+      { status: 500 }
+    );
+  }
+}
+
+/**
+ * DELETE /api/appointments
+ * Deletes an appointment across all devices
+ */
+export async function DELETE(request: Request) {
+  try {
+    const url = new URL(request.url);
+    let targetId = url.searchParams.get("id") || url.searchParams.get("bookingId");
+
+    if (!targetId) {
+      try {
+        const body = await request.json();
+        targetId = body.id || body.bookingId || body.booking_id;
+      } catch {}
+    }
+
+    const cleanId = sanitizeInput(targetId);
+    if (!cleanId) {
+      return NextResponse.json(
+        { success: false, message: "Appointment ID is required." },
+        { status: 400 }
+      );
+    }
+
+    const removeIndex = GLOBAL_SERVER_APPOINTMENTS.findIndex(
+      (a) => a.booking_id === cleanId || a.id === cleanId
+    );
+
+    if (removeIndex !== -1) {
+      GLOBAL_SERVER_APPOINTMENTS.splice(removeIndex, 1);
+    }
+
+    if (isSupabaseConfigured) {
+      try {
+        await supabase
+          .from("appointments")
+          .delete()
+          .or(`id.eq.${cleanId},booking_id.eq.${cleanId}`);
+      } catch (err) {
+        console.warn("Supabase delete in DELETE /api/appointments:", err);
+      }
+    }
+
+    return NextResponse.json({
+      success: true,
+      message: `Appointment ${cleanId} deleted successfully.`,
+      deletedId: cleanId,
+    });
+  } catch (err: unknown) {
+    console.error("DELETE /api/appointments Error:", err);
+    return NextResponse.json(
+      { success: false, message: "Failed to delete appointment" },
       { status: 500 }
     );
   }

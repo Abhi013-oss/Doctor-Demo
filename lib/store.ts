@@ -137,6 +137,13 @@ export function updateAppointmentStatus(id: string, newStatus: Appointment["stat
   const updated = current.map((a) => (a.id === id ? { ...a, status: newStatus } : a));
   saveStoredAppointments(updated);
 
+  // Sync update to server store for cross-device real-time sync
+  fetch("/api/appointments", {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ id, status: newStatus }),
+  }).catch(() => {});
+
   // Sync to Supabase DB if configured
   if (isSupabaseConfigured) {
     supabase
@@ -154,6 +161,12 @@ export function rescheduleAppointmentInStore(id: string, newDate: string, newTim
   );
   saveStoredAppointments(updated);
 
+  fetch("/api/appointments", {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ id, date: newDate, time: newTime, status: "Scheduled" }),
+  }).catch(() => {});
+
   if (isSupabaseConfigured) {
     supabase
       .from("appointments")
@@ -163,11 +176,34 @@ export function rescheduleAppointmentInStore(id: string, newDate: string, newTim
   }
 }
 
+export function saveAppointmentInStore(apt: Partial<Appointment> & { id: string }) {
+  const current = getStoredAppointments();
+  const idx = current.findIndex((a) => a.id === apt.id);
+  if (idx !== -1) {
+    current[idx] = { ...current[idx], ...apt };
+  } else {
+    current.unshift(apt as Appointment);
+  }
+  saveStoredAppointments(current);
+
+  fetch("/api/appointments", {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(apt),
+  }).catch(() => {});
+}
+
 export function deleteAppointmentFromStore(id: string) {
   const current = getStoredAppointments();
   const target = current.find((a) => a.id === id);
   const updated = current.filter((a) => a.id !== id);
   saveStoredAppointments(updated);
+
+  fetch("/api/appointments", {
+    method: "DELETE",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ id }),
+  }).catch(() => {});
 
   if (target) {
     const remainingForPatient = updated.filter(
@@ -429,11 +465,14 @@ export async function syncSupabaseAppointmentsToStore() {
       }
     }
 
-    if (!rows || rows.length === 0) return;
+    const currentLocal = getStoredAppointments();
+    const serverIds = new Set<string>();
 
     rows.forEach((row) => {
+      const bId = row.booking_id || row.id;
+      if (bId) serverIds.add(bId);
       addAppointmentFromWebsite({
-        bookingId: row.booking_id || row.id,
+        bookingId: bId,
         patientName: row.name || row.patientName,
         patientPhone: row.phone || row.patientPhone,
         patientEmail: row.email || row.patientEmail,
@@ -446,6 +485,17 @@ export async function syncSupabaseAppointmentsToStore() {
         status: row.status,
       });
     });
+
+    // Purge local appointments that were deleted on the server across devices
+    if (serverIds.size > 0 && currentLocal.length > 0) {
+      const reconciled = currentLocal.filter((localApt) => {
+        if (!localApt.id || localApt.id.startsWith("APT-100")) return true;
+        return serverIds.has(localApt.id);
+      });
+      if (reconciled.length !== currentLocal.length) {
+        saveStoredAppointments(reconciled);
+      }
+    }
   } catch (err) {
     console.warn("Supabase Sync Error:", err);
   }

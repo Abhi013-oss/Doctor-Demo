@@ -11,6 +11,8 @@ import { ConfirmationModal } from "@/components/admin/ConfirmationModal";
 import { exportAppointmentsCSV, printTable } from "@/utils/export";
 import { Appointment } from "@/types";
 
+import { saveAppointmentInStore } from "@/lib/store";
+
 export function AppointmentList() {
   const {
     appointments = [],
@@ -68,9 +70,8 @@ export function AppointmentList() {
   );
 
   const handleSaveAppointment = (newApt: Partial<Appointment>) => {
-    if (!newApt) return;
-    const created = newApt as Appointment;
-    setAppointments([created, ...(appointments || [])]);
+    if (!newApt || !newApt.id) return;
+    saveAppointmentInStore(newApt as Appointment & { id: string });
   };
 
   const getBadgeVariant = (status?: string) => {
