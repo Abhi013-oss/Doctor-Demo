@@ -43,7 +43,6 @@ function deduplicateAppointments(list: Appointment[]): Appointment[] {
 
   for (const apt of list) {
     if (!apt || typeof apt !== "object" || !apt.id) continue;
-    if (apt.id.startsWith("APT-100")) continue;
     if (seenIds.has(apt.id)) continue;
 
     seenIds.add(apt.id);
@@ -411,6 +410,59 @@ export function addAppointmentFromWebsite(data: {
   return newAppointment;
 }
 
+// Helper to reconcile Patient directory records from synced Appointment data across devices
+export function reconcilePatientsFromAppointments(apts: Appointment[]) {
+  if (typeof window === "undefined" || !apts || apts.length === 0) return;
+  try {
+    const raw = localStorage.getItem(STORAGE_KEYS.PATIENTS);
+    const currentPatients: Patient[] = raw ? JSON.parse(raw) : [];
+    let updated = false;
+
+    apts.forEach((apt) => {
+      if (!apt || !apt.patientName) return;
+      const phone = apt.patientPhone || "";
+      const email = apt.patientEmail || "";
+
+      const exists = currentPatients.some(
+        (p) =>
+          (email && p.email && p.email.toLowerCase() === email.toLowerCase()) ||
+          (phone && p.phone === phone) ||
+          (p.name && p.name.toLowerCase() === apt.patientName.toLowerCase())
+      );
+
+      if (!exists) {
+        const newPatient: Patient = {
+          id: apt.patientId || `PAT-${Math.floor(1000 + Math.random() * 9000)}`,
+          mrn: `MRN-${Math.floor(10000 + Math.random() * 90000)}`,
+          name: apt.patientName,
+          age: apt.patientAge || 30,
+          gender: (apt.patientGender as any) || "Male",
+          phone: phone,
+          email: email,
+          bloodGroup: "O+",
+          address: "Submitted via Online Booking",
+          disease: apt.department || "General Consultation",
+          lastVisit: apt.date || new Date().toISOString().split("T")[0],
+          totalVisits: 1,
+          status: "Active",
+          allergies: ["None Reported"],
+          medications: [],
+          conditions: [apt.department || "General Consultation"],
+          avatar: apt.avatar || "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80"
+        };
+        currentPatients.unshift(newPatient);
+        updated = true;
+      }
+    });
+
+    if (updated) {
+      localStorage.setItem(STORAGE_KEYS.PATIENTS, JSON.stringify(currentPatients));
+    }
+  } catch (e) {
+    console.warn("Patient reconciliation error:", e);
+  }
+}
+
 // Fetch and sync all appointments directly from Supabase / Server API into Admin Store across all devices
 export async function syncSupabaseAppointmentsToStore() {
   try {
@@ -475,7 +527,7 @@ export async function syncSupabaseAppointmentsToStore() {
     if (serverIds.size > 0 && currentLocal.length > 0) {
       const tenMinutesAgo = Date.now() - 10 * 60 * 1000;
       const reconciled = currentLocal.filter((localApt) => {
-        if (!localApt.id || localApt.id.startsWith("APT-100")) return true;
+        if (!localApt.id) return true;
         if (serverIds.has(localApt.id)) return true;
         if (localApt.createdAt) {
           const createdTime = new Date(localApt.createdAt).getTime();
@@ -489,6 +541,9 @@ export async function syncSupabaseAppointmentsToStore() {
         saveStoredAppointments(reconciled);
       }
     }
+
+    // Reconcile patient records from current appointments so every logged-in device gets full patient directory
+    reconcilePatientsFromAppointments(getStoredAppointments());
 
     notifyChange();
   } catch (err) {
