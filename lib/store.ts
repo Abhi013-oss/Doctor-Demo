@@ -78,11 +78,64 @@ export function getStoredPatients(): Patient[] {
   if (typeof window === "undefined") return [];
   try {
     const raw = localStorage.getItem(STORAGE_KEYS.PATIENTS);
-    if (!raw) return [];
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed)
-      ? parsed.filter((p) => p && typeof p === "object" && p.id && !p.id.startsWith("PAT-80"))
-      : [];
+    const localPatients: Patient[] = raw ? JSON.parse(raw) : [];
+    const appointments = getStoredAppointments();
+
+    const patientMap = new Map<string, Patient>();
+
+    // 1. Build patient records directly from central synced appointments
+    appointments.forEach((apt) => {
+      if (!apt || !apt.patientName) return;
+      const key = (apt.patientEmail || apt.patientPhone || apt.patientName).toLowerCase().trim();
+      if (!key) return;
+
+      if (!patientMap.has(key)) {
+        patientMap.set(key, {
+          id: apt.patientId || `PAT-${Math.floor(1000 + Math.random() * 9000)}`,
+          mrn: `MRN-${Math.floor(10000 + Math.random() * 90000)}`,
+          name: apt.patientName,
+          age: apt.patientAge || 30,
+          gender: (apt.patientGender as any) || "Male",
+          phone: apt.patientPhone || "",
+          email: apt.patientEmail || "",
+          bloodGroup: "O+",
+          address: "Submitted via Online Booking",
+          disease: apt.department || "General Consultation",
+          lastVisit: apt.date || new Date().toISOString().split("T")[0],
+          totalVisits: 1,
+          status: "Active",
+          allergies: ["None Reported"],
+          medications: [],
+          conditions: [apt.department || "General Consultation"],
+          avatar: apt.avatar || "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80"
+        });
+      } else {
+        const existing = patientMap.get(key)!;
+        existing.totalVisits += 1;
+        if (apt.date) existing.lastVisit = apt.date;
+      }
+    });
+
+    // 2. Merge local patients if they belong to a synced appointment
+    if (Array.isArray(localPatients)) {
+      localPatients.forEach((p) => {
+        if (!p || !p.name || (p.id && p.id.startsWith("PAT-80"))) return;
+        const key = (p.email || p.phone || p.name).toLowerCase().trim();
+        if (
+          !patientMap.has(key) &&
+          appointments.some(
+            (a) =>
+              (a.patientEmail && p.email && a.patientEmail.toLowerCase() === p.email.toLowerCase()) ||
+              (a.patientPhone && p.phone && a.patientPhone === p.phone) ||
+              (a.patientName && a.patientName.toLowerCase() === p.name.toLowerCase())
+          )
+        ) {
+          patientMap.set(key, p);
+        }
+      });
+    }
+
+    return Array.from(patientMap.values());
   } catch {
     return [];
   }
