@@ -554,49 +554,34 @@ export async function syncSupabaseAppointmentsToStore() {
       }
     }
 
-    const currentLocal = getStoredAppointments();
-    const serverIds = new Set<string>();
-
-    rows.forEach((row) => {
-      const bId = row.booking_id || row.id;
-      if (bId) serverIds.add(bId);
-      addAppointmentFromWebsite({
-        bookingId: bId,
-        patientName: row.name || row.patientName,
-        patientPhone: row.phone || row.patientPhone,
-        patientEmail: row.email || row.patientEmail,
-        date: row.preferred_date || row.date,
-        time: row.preferred_time || row.time,
-        department: row.disease || row.department,
-        reason: row.message || row.reason,
-        age: row.age || row.patientAge,
-        gender: row.gender || row.patientGender,
-        status: row.status,
+    if (rows.length > 0) {
+      const syncedAppointments: Appointment[] = rows.map((row) => {
+        const bId = row.booking_id || row.id;
+        return {
+          id: bId,
+          patientId: row.patientId || `PAT-${bId}`,
+          patientName: row.name || row.patientName || "Guest Patient",
+          patientPhone: row.phone || row.patientPhone || "",
+          patientEmail: row.email || row.patientEmail || "",
+          patientAge: row.age || row.patientAge || 30,
+          patientGender: row.gender || row.patientGender || "Male",
+          doctorName: row.doctorName || CLINIC_INFO.doctor.name.split(",")[0],
+          department: row.disease || row.department || "Cardiology",
+          date: row.preferred_date || row.date || new Date().toISOString().split("T")[0],
+          time: row.preferred_time || row.time || "Morning (09:00 AM - 12:00 PM)",
+          type: row.type || "In-Person",
+          status: row.status || "Pending",
+          reason: row.message || row.reason || "General Consultation Request",
+          notes: row.notes || "",
+          avatar: row.avatar || "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80",
+          createdAt: row.created_at || row.createdAt || new Date().toISOString()
+        };
       });
-    });
 
-    // Purge local appointments that were deleted on the server across devices,
-    // but ALWAYS protect recently booked local appointments (< 10 mins) so sync-in-flight is never wiped.
-    if (serverIds.size > 0 && currentLocal.length > 0) {
-      const tenMinutesAgo = Date.now() - 10 * 60 * 1000;
-      const reconciled = currentLocal.filter((localApt) => {
-        if (!localApt.id) return true;
-        if (serverIds.has(localApt.id)) return true;
-        if (localApt.createdAt) {
-          const createdTime = new Date(localApt.createdAt).getTime();
-          if (!isNaN(createdTime) && createdTime > tenMinutesAgo) {
-            return true;
-          }
-        }
-        return false;
-      });
-      if (reconciled.length !== currentLocal.length) {
-        saveStoredAppointments(reconciled);
-      }
+      const cleanSynced = deduplicateAppointments(syncedAppointments);
+      localStorage.setItem(STORAGE_KEYS.APPOINTMENTS, JSON.stringify(cleanSynced));
+      reconcilePatientsFromAppointments(cleanSynced);
     }
-
-    // Reconcile patient records from current appointments so every logged-in device gets full patient directory
-    reconcilePatientsFromAppointments(getStoredAppointments());
 
     notifyChange();
   } catch (err) {
