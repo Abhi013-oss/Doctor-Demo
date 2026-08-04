@@ -13,7 +13,7 @@ import { exportPatientsCSV } from "@/utils/export";
 import { Patient, Appointment } from "@/types";
 
 export function PatientList() {
-  const { patients, setPatients, deletePatient } = usePatients();
+  const { patients = [], setPatients, deletePatient } = usePatients();
   const { terms } = useBusiness();
 
   const [searchQuery, setSearchQuery] = useState("");
@@ -36,12 +36,13 @@ export function PatientList() {
     name: "",
   });
 
-  const filteredPatients = patients.filter((p) => {
+  const filteredPatients = (patients || []).filter((p) => {
+    if (!p || typeof p !== "object" || !p.id) return false;
     const matchesSearch =
-      p.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      p.mrn.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      p.phone.includes(searchQuery) ||
-      p.email.toLowerCase().includes(searchQuery.toLowerCase());
+      (p.name || "").toLowerCase().includes(searchQuery.toLowerCase()) ||
+      (p.mrn || "").toLowerCase().includes(searchQuery.toLowerCase()) ||
+      (p.phone || "").includes(searchQuery) ||
+      (p.email || "").toLowerCase().includes(searchQuery.toLowerCase());
 
     const matchesStatus = statusFilter === "All" || p.status === statusFilter;
 
@@ -55,7 +56,8 @@ export function PatientList() {
   );
 
   const handleRegisterPatient = (newPatient: Patient) => {
-    setPatients([newPatient, ...patients]);
+    if (!newPatient) return;
+    setPatients([newPatient, ...(patients || [])]);
   };
 
   const columns = [
@@ -64,19 +66,19 @@ export function PatientList() {
       cell: (row: Patient) => (
         <div className="flex items-center gap-3">
           <img
-            src={row.avatar || "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80"}
-            alt={row.name}
+            src={row?.avatar || "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80"}
+            alt={row?.name || "Patient"}
             className="w-9 h-9 rounded-full object-cover border border-slate-700"
           />
           <div>
             <div className="font-bold text-white flex items-center gap-2">
-              <span>{row.name}</span>
+              <span>{row?.name || "Guest Patient"}</span>
               <span className="text-[10px] font-mono text-teal-400 font-bold bg-slate-800 px-1.5 py-0.5 rounded">
-                {row.mrn}
+                {row?.mrn || "MRN-000"}
               </span>
             </div>
             <div className="text-[10px] text-slate-400">
-              {row.age} yrs • {row.gender} • Info: {row.bloodGroup}
+              {row?.age || 30} yrs • {row?.gender || "N/A"} • Info: {row?.bloodGroup || "O+"}
             </div>
           </div>
         </div>
@@ -86,8 +88,8 @@ export function PatientList() {
       header: "Contact Info",
       cell: (row: Patient) => (
         <div>
-          <div className="font-semibold text-slate-200">{row.phone}</div>
-          <div className="text-[10px] text-slate-400 truncate max-w-[150px]">{row.email}</div>
+          <div className="font-semibold text-slate-200">{row?.phone || "N/A"}</div>
+          <div className="text-[10px] text-slate-400 truncate max-w-[150px]">{row?.email || "N/A"}</div>
         </div>
       ),
     },
@@ -95,24 +97,21 @@ export function PatientList() {
       header: "Primary Concern",
       cell: (row: Patient) => (
         <span className="text-xs font-semibold text-slate-300">
-          {row.disease || row.conditions?.[0] || "General Audit"}
+          {row?.disease || row?.conditions?.[0] || "General Audit"}
         </span>
       ),
     },
     {
-      header: "Visits",
+      header: "Total Visits",
       cell: (row: Patient) => (
-        <div>
-          <div className="font-bold text-white">{row.totalVisits} visits</div>
-          <div className="text-[10px] text-slate-400">Last: {row.lastVisit}</div>
-        </div>
+        <span className="font-mono font-bold text-teal-400">{row?.totalVisits || 1} Visits</span>
       ),
     },
     {
       header: "Status",
       cell: (row: Patient) => (
-        <Badge variant={row.status === "Active" ? "emerald" : "amber"}>
-          ● {row.status}
+        <Badge variant={row?.status === "Active" ? "emerald" : "amber"}>
+          ● {row?.status || "Active"}
         </Badge>
       ),
     },
@@ -124,11 +123,13 @@ export function PatientList() {
             variant="outline"
             size="sm"
             onClick={() => {
-              setSelectedPatient(row);
-              setIsDrawerOpen(true);
+              if (row) {
+                setSelectedPatient(row);
+                setIsDrawerOpen(true);
+              }
             }}
           >
-            View EHR File
+            Profile
           </Button>
 
           <Button
@@ -137,8 +138,8 @@ export function PatientList() {
             onClick={() =>
               setConfirmDialog({
                 isOpen: true,
-                id: row.id,
-                name: row.name,
+                id: row?.id || "",
+                name: row?.name || "Patient",
               })
             }
           >
@@ -151,12 +152,12 @@ export function PatientList() {
 
   return (
     <div className="space-y-6">
-      {/* Header */}
+      {/* Top Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-xl font-bold text-white tracking-tight">{terms.clientsLabel} Directory</h1>
           <p className="text-xs text-slate-400 mt-0.5">
-            Electronic Records (EHR) & client profiles
+            Manage patient electronic health records, history, and notes
           </p>
         </div>
 
@@ -165,59 +166,71 @@ export function PatientList() {
             variant="outline"
             size="sm"
             onClick={() => exportPatientsCSV(filteredPatients)}
-            leftIcon={<Download className="w-4 h-4" />}
+            className="flex items-center gap-1.5"
           >
+            <Download className="w-4 h-4" />
             Export CSV
           </Button>
+
           <Button
             variant="primary"
             size="sm"
             onClick={() => setIsRegisterOpen(true)}
-            leftIcon={<Plus className="w-4 h-4" />}
+            className="flex items-center gap-1.5"
           >
+            <Plus className="w-4 h-4" />
             Register {terms.clientLabel}
           </Button>
         </div>
       </div>
 
-      {/* Filter Controls */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-4 rounded-2xl bg-slate-900/60 border border-slate-800/80">
-        <Input
-          placeholder={`Search by name, MRN, phone, email...`}
-          value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
-          icon={<Search className="w-4 h-4 text-slate-400" />}
-        />
+      {/* Filter Toolbar */}
+      <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-4 flex flex-col md:flex-row gap-4 justify-between items-stretch md:items-center">
+        <div className="relative flex-1">
+          <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+          <Input
+            placeholder={`Search by name, MRN, phone, email...`}
+            value={searchQuery}
+            onChange={(e) => {
+              setSearchQuery(e.target.value);
+              setCurrentPage(1);
+            }}
+            className="pl-9 bg-slate-950/60 border-slate-800 focus:border-teal-500"
+          />
+        </div>
 
         <Select
           value={statusFilter}
-          onChange={(e) => setStatusFilter(e.target.value)}
+          onChange={(e) => {
+            setStatusFilter(e.target.value);
+            setCurrentPage(1);
+          }}
           options={[
-            { label: "All Patient Statuses", value: "All" },
-            { label: "Active", value: "Active" },
-            { label: "Follow-up Required", value: "Follow-up Required" },
-            { label: "New", value: "New" },
-            { label: "Discharged", value: "Discharged" },
+            { value: "All", label: "All Statuses" },
+            { value: "Active", label: "Active" },
+            { value: "Follow-up Required", label: "Follow-up Required" },
+            { value: "Archived", label: "Archived" },
           ]}
+          className="w-44 bg-slate-950/60 border-slate-800 text-xs"
         />
       </div>
 
       {/* Data Table */}
       <Table
-        data={paginatedPatients}
         columns={columns}
-        keyExtractor={(row) => row.id}
-        emptyText={`No ${terms.clientsLabel.toLowerCase()} found matching your filters.`}
+        data={paginatedPatients}
+        keyExtractor={(item) => (item && item.id ? item.id : `pat-${Math.random()}`)}
+        emptyText={`No ${terms.clientsLabel.toLowerCase()} found.`}
       />
 
       {/* Pagination */}
-      <Pagination
-        currentPage={currentPage}
-        totalPages={totalPages}
-        onPageChange={setCurrentPage}
-        totalResults={filteredPatients.length}
-        showingCount={paginatedPatients.length}
-      />
+      {filteredPatients.length > itemsPerPage && (
+        <Pagination
+          currentPage={currentPage}
+          totalPages={totalPages}
+          onPageChange={setCurrentPage}
+        />
+      )}
 
       {/* Register Patient Modal */}
       <PatientModal
@@ -226,34 +239,35 @@ export function PatientList() {
         onSave={handleRegisterPatient}
       />
 
-      {/* Detail Drawer */}
+      {/* Patient Detail Drawer */}
       <PatientDetailDrawer
         patient={selectedPatient}
-        onClose={() => setIsDrawerOpen(false)}
-        onOpenSchedule={(p) => {
-          setSelectedPatient(p);
+        onClose={() => setSelectedPatient(null)}
+        onOpenSchedule={() => {
+          setIsDrawerOpen(false);
           setIsScheduleOpen(true);
         }}
       />
 
-      {/* Appointment Schedule Modal */}
+      {/* Schedule Modal */}
       <AppointmentModal
         isOpen={isScheduleOpen}
         onClose={() => setIsScheduleOpen(false)}
-        onSave={(apt) => {
-          // Saved via store
-        }}
+        onSave={() => {}}
       />
 
       {/* Confirmation Dialog */}
       <ConfirmationModal
         isOpen={confirmDialog.isOpen}
         onClose={() => setConfirmDialog((prev) => ({ ...prev, isOpen: false }))}
+        onConfirm={() => {
+          if (confirmDialog.id) deletePatient(confirmDialog.id);
+          setConfirmDialog((prev) => ({ ...prev, isOpen: false }));
+        }}
         title={`Delete ${terms.clientLabel} Record`}
-        message={`Are you sure you want to delete ${confirmDialog.name}'s profile? All associated appointments will also be removed.`}
-        confirmText="Delete Record"
+        message={`Are you sure you want to permanently delete record for ${confirmDialog.name}?`}
+        confirmText="Yes, Delete Record"
         type="delete"
-        onConfirm={() => deletePatient(confirmDialog.id)}
       />
     </div>
   );
