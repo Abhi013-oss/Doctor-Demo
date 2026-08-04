@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
   Calendar,
   Users,
@@ -30,12 +30,17 @@ export function DashboardOverview() {
   const { terms } = useBusiness();
   const [selectedPatient, setSelectedPatient] = useState<Patient | null>(null);
   const [isScheduleModalOpen, setIsScheduleModalOpen] = useState(false);
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   const safeAppointments = (appointments || []).filter((a) => a && typeof a === "object" && a.id);
-  const safePatients = (patients || []).filter((p) => p && typeof p === "object");
+  const safePatients = (patients || []).filter((p) => p && typeof p === "object" && p.id);
 
-  const todayStr = new Date().toISOString().split("T")[0];
-  const todayAppointments = safeAppointments.filter((a) => a.date === todayStr || !a.date);
+  const todayStr = mounted ? new Date().toISOString().split("T")[0] : "";
+  const todayAppointments = safeAppointments.filter((a) => (todayStr ? a.date === todayStr : true));
   const upcomingAppointments = safeAppointments.filter((a) => a.status === "Approved" || a.status === "Scheduled" || a.status === "Waiting");
   const completedAppointments = safeAppointments.filter((a) => a.status === "Completed");
   const cancelledAppointments = safeAppointments.filter((a) => a.status === "Cancelled");
