@@ -4,10 +4,13 @@ import { useLiveClinicData, addDoctorNoteToPatient, editDoctorNoteInPatient, del
 import { Patient } from "../types";
 
 export function usePatients() {
-  const { patients, setPatients, deletePatient, isLoaded, refreshData } = useLiveClinicData();
+  const { patients = [], setPatients, deletePatient, isLoaded, refreshData } = useLiveClinicData();
+
+  const safePatients = (patients || []).filter((p) => p && typeof p === "object" && p.id);
 
   const getPatientById = (patientId: string): Patient | undefined => {
-    return patients.find((p) => p.id === patientId || p.email.toLowerCase() === patientId.toLowerCase());
+    if (!patientId) return undefined;
+    return safePatients.find((p) => p.id === patientId || (p.email && p.email.toLowerCase() === patientId.toLowerCase()));
   };
 
   const addNote = (patientId: string, text: string, author?: string) => {
@@ -23,7 +26,7 @@ export function usePatients() {
   };
 
   return {
-    patients,
+    patients: safePatients,
     setPatients,
     getPatientById,
     deletePatient,

@@ -5,7 +5,7 @@ import { Appointment, AppointmentStatus } from "../types";
 
 export function useAppointments() {
   const {
-    appointments,
+    appointments = [],
     setAppointments,
     approveAppointment,
     rejectAppointment,
@@ -17,17 +17,19 @@ export function useAppointments() {
     refreshData,
   } = useLiveClinicData();
 
+  const safeAppointments = (appointments || []).filter((apt) => apt && typeof apt === "object" && apt.id);
+
   const getAppointmentsByStatus = (status: AppointmentStatus) => {
-    return appointments.filter((apt) => apt.status === status);
+    return safeAppointments.filter((apt) => apt?.status === status);
   };
 
   const getTodayAppointments = () => {
     const todayStr = new Date().toISOString().split("T")[0];
-    return appointments.filter((apt) => apt.date === todayStr);
+    return safeAppointments.filter((apt) => apt?.date === todayStr);
   };
 
   return {
-    appointments,
+    appointments: safeAppointments,
     setAppointments,
     getAppointmentsByStatus,
     getTodayAppointments,

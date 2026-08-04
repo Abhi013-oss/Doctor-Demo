@@ -162,9 +162,9 @@ export function AppointmentList() {
                 setConfirmDialog({
                   isOpen: true,
                   type: "approve",
-                  id: row.id,
+                  id: row?.id || "",
                   title: `Approve ${terms.bookingLabel}`,
-                  message: `Are you sure you want to approve ${row.patientName || "this"}'s ${terms.bookingLabel}?`,
+                  message: `Are you sure you want to approve ${row?.patientName || "this"}'s ${terms.bookingLabel}?`,
                 })
               }
             >

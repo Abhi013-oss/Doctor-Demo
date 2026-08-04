@@ -1,10 +1,8 @@
 import { SettingsConsole } from "@/features/settings/SettingsConsole";
 
-export const dynamic = "force-dynamic";
-
 export const metadata = {
   title: "Settings | Operations Console",
-  description: "Facility operations and account settings",
+  description: "Configure clinic rules, security, and preferences",
 };
 
 export default function SettingsPage() {

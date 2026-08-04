@@ -3,7 +3,7 @@
 import React, { useState } from "react";
 import { Calendar, CheckCircle } from "lucide-react";
 import { Appointment } from "@/types";
-import { INITIAL_PATIENTS } from "@/constants/default-data";
+import { useLiveClinicData } from "@/lib/store";
 import { Modal, Button, Input, Select, Textarea } from "../ui";
 import { useBusiness } from "@/hooks/useBusiness";
 
@@ -16,10 +16,15 @@ interface AppointmentModalProps {
 
 export function AppointmentModal({ isOpen, onClose, onSave, initialData }: AppointmentModalProps) {
   const { terms } = useBusiness();
-  const [patientId, setPatientId] = useState(initialData?.patientId || INITIAL_PATIENTS[0].id);
+  const { patients = [] } = useLiveClinicData();
+
+  const safePatients = (patients || []).filter((p) => p && typeof p === "object" && p.id);
+  const firstPatientId = safePatients[0]?.id || "";
+
+  const [patientId, setPatientId] = useState(initialData?.patientId || firstPatientId);
   const [doctorName, setDoctorName] = useState(initialData?.doctorName || "Dr. Alexander Vance");
   const [department, setDepartment] = useState(initialData?.department || "Cardiology");
-  const [date, setDate] = useState(initialData?.date || "2026-07-31");
+  const [date, setDate] = useState(initialData?.date || new Date().toISOString().split("T")[0]);
   const [time, setTime] = useState(initialData?.time || "10:00 AM");
   const [type, setType] = useState<Appointment["type"]>(initialData?.type || "In-Person");
   const [reason, setReason] = useState(initialData?.reason || "");
@@ -30,16 +35,16 @@ export function AppointmentModal({ isOpen, onClose, onSave, initialData }: Appoi
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    const selectedPatient = INITIAL_PATIENTS.find((p) => p.id === patientId) || INITIAL_PATIENTS[0];
+    const selectedPatient = safePatients.find((p) => p.id === patientId) || safePatients[0];
 
     onSave({
       id: initialData?.id || `APT-${Math.floor(1000 + Math.random() * 9000)}`,
-      patientId: selectedPatient.id,
-      patientName: selectedPatient.name,
-      patientPhone: selectedPatient.phone,
-      patientEmail: selectedPatient.email,
-      patientAge: selectedPatient.age,
-      patientGender: selectedPatient.gender,
+      patientId: selectedPatient?.id || "PAT-001",
+      patientName: selectedPatient?.name || "Guest Patient",
+      patientPhone: selectedPatient?.phone || "",
+      patientEmail: selectedPatient?.email || "",
+      patientAge: selectedPatient?.age || 30,
+      patientGender: selectedPatient?.gender || "Other",
       doctorName,
       department,
       date,
@@ -48,7 +53,7 @@ export function AppointmentModal({ isOpen, onClose, onSave, initialData }: Appoi
       status,
       reason: reason || "General Consultation",
       notes,
-      avatar: selectedPatient.avatar,
+      avatar: selectedPatient?.avatar || "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80",
     });
     onClose();
   };
@@ -58,54 +63,54 @@ export function AppointmentModal({ isOpen, onClose, onSave, initialData }: Appoi
       isOpen={isOpen}
       onClose={onClose}
       title={initialData ? `Edit ${terms.bookingLabel}` : `Schedule New ${terms.bookingLabel}`}
-      maxWidth="lg"
     >
       <form onSubmit={handleSubmit} className="space-y-4">
         {/* Patient Selection */}
-        <Select
-          label={`Select ${terms.clientLabel} *`}
-          value={patientId}
-          onChange={(e) => setPatientId(e.target.value)}
-          options={INITIAL_PATIENTS.map((p) => ({
-            label: `${p.name} (${p.mrn}) — ${p.phone}`,
-            value: p.id,
-          }))}
-        />
+        <div>
+          <label className="block text-xs font-semibold text-slate-300 mb-1">
+            Select {terms.clientLabel}
+          </label>
+          <Select
+            value={patientId}
+            onChange={(e) => setPatientId(e.target.value)}
+            options={
+              safePatients.length > 0
+                ? safePatients.map((p) => ({
+                    value: p.id,
+                    label: `${p.name} (${p.mrn || p.id})`,
+                  }))
+                : [{ value: "", label: "No registered patients (Guest mode)" }]
+            }
+          />
+        </div>
 
         {/* Doctor & Department */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <Input
-            label={`Assigned ${terms.providerLabel}`}
+            label="Provider Name"
             value={doctorName}
             onChange={(e) => setDoctorName(e.target.value)}
             required
           />
-          <Select
-            label="Department / Category"
+          <Input
+            label="Department / Specialty"
             value={department}
             onChange={(e) => setDepartment(e.target.value)}
-            options={[
-              { label: "Cardiology", value: "Cardiology" },
-              { label: "Neurology", value: "Neurology" },
-              { label: "Orthopedics", value: "Orthopedics" },
-              { label: "Dermatology", value: "Dermatology" },
-              { label: "General Practice", value: "General Practice" },
-            ]}
+            required
           />
         </div>
 
         {/* Date & Time */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <Input
-            label="Date *"
+            label="Date"
             type="date"
             value={date}
             onChange={(e) => setDate(e.target.value)}
             required
           />
           <Input
-            label="Time Slot *"
-            type="text"
+            label="Time Slot"
             value={time}
             onChange={(e) => setTime(e.target.value)}
             placeholder="e.g. 10:30 AM"
@@ -114,16 +119,15 @@ export function AppointmentModal({ isOpen, onClose, onSave, initialData }: Appoi
         </div>
 
         {/* Type & Status */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <Select
-            label="Consultation Type"
+            label="Visit Type"
             value={type}
             onChange={(e) => setType(e.target.value as Appointment["type"])}
             options={[
-              { label: "In-Person Clinic", value: "In-Person" },
-              { label: "Telehealth Video", value: "Telehealth" },
-              { label: "Follow-up", value: "Follow-up" },
-              { label: "Emergency", value: "Emergency" },
+              { value: "In-Person", label: "In-Person Visit" },
+              { value: "Telehealth", label: "Telehealth Consultation" },
+              { value: "Follow-up", label: "Follow-up Care" },
             ]}
           />
           <Select
@@ -131,39 +135,40 @@ export function AppointmentModal({ isOpen, onClose, onSave, initialData }: Appoi
             value={status}
             onChange={(e) => setStatus(e.target.value as Appointment["status"])}
             options={[
-              { label: "Scheduled", value: "Scheduled" },
-              { label: "Waiting / Checked In", value: "Waiting" },
-              { label: "In Progress", value: "In Progress" },
-              { label: "Completed", value: "Completed" },
-              { label: "Cancelled", value: "Cancelled" },
+              { value: "Pending", label: "Pending Approval" },
+              { value: "Scheduled", label: "Scheduled" },
+              { value: "Approved", label: "Approved" },
+              { value: "Completed", label: "Completed" },
+              { value: "Cancelled", label: "Cancelled" },
             ]}
           />
         </div>
 
-        {/* Reason */}
-        <Input
-          label="Reason for Visit *"
+        {/* Reason for Visit */}
+        <Textarea
+          label="Primary Reason / Chief Concern"
           value={reason}
           onChange={(e) => setReason(e.target.value)}
-          placeholder="e.g. Routine Consultation & Assessment"
-          required
+          placeholder="Brief summary of consultation request..."
+          rows={2}
         />
 
         {/* Notes */}
         <Textarea
-          label="Notes (Optional)"
-          rows={3}
+          label="Internal Doctor Notes (Optional)"
           value={notes}
           onChange={(e) => setNotes(e.target.value)}
-          placeholder="Add symptoms, pre-visit instructions or internal notes..."
+          placeholder="Internal notes visible to medical staff..."
+          rows={2}
         />
 
-        <div className="pt-3 flex items-center justify-end gap-3">
-          <Button variant="secondary" onClick={onClose} type="button">
+        {/* Modal Buttons */}
+        <div className="flex items-center justify-end gap-3 pt-4 border-t border-slate-800">
+          <Button variant="outline" type="button" onClick={onClose}>
             Cancel
           </Button>
           <Button variant="primary" type="submit" leftIcon={<CheckCircle className="w-4 h-4" />}>
-            {initialData ? `Update ${terms.bookingLabel}` : "Confirm Schedule"}
+            Save {terms.bookingLabel}
           </Button>
         </div>
       </form>
