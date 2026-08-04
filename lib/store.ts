@@ -39,7 +39,6 @@ export function saveStoredClinicSettings(settings: ClinicSettings) {
 
 function deduplicateAppointments(list: Appointment[]): Appointment[] {
   const seenIds = new Set<string>();
-  const seenSignatures = new Set<string>();
   const result: Appointment[] = [];
 
   for (const apt of list) {
@@ -47,19 +46,7 @@ function deduplicateAppointments(list: Appointment[]): Appointment[] {
     if (apt.id.startsWith("APT-100")) continue;
     if (seenIds.has(apt.id)) continue;
 
-    const sigKey = [
-      (apt.patientPhone || apt.patientEmail || apt.patientName || "").toLowerCase().trim(),
-      (apt.date || "").trim(),
-      (apt.time || "").trim(),
-      (apt.department || "").toLowerCase().trim()
-    ].join("::");
-
-    if (sigKey !== "::::" && seenSignatures.has(sigKey)) {
-      continue;
-    }
-
     seenIds.add(apt.id);
-    if (sigKey !== "::::") seenSignatures.add(sigKey);
     result.push(apt);
   }
 
