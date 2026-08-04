@@ -347,25 +347,23 @@ export function addAppointmentFromWebsite(data: {
 
   const bookingCode = data.bookingId || `APT-${Math.floor(10000 + Math.random() * 90000)}`;
 
-  // Avoid duplicate entries if already in store by ID or by patient/date/time signature
-  const existingIndex = currentAppointments.findIndex(
-    (a) =>
-      a.id === bookingCode ||
-      (a.date === data.date &&
-        a.time === data.time &&
-        ((data.patientPhone && a.patientPhone === data.patientPhone) ||
-          (data.patientEmail && a.patientEmail && a.patientEmail.toLowerCase() === data.patientEmail.toLowerCase())))
-  );
+  // Avoid duplicate entries if already in store strictly by ID
+  const existingIndex = currentAppointments.findIndex((a) => a.id === bookingCode);
   if (existingIndex !== -1) {
-    if (data.status && currentAppointments[existingIndex].status !== data.status) {
-      currentAppointments[existingIndex] = {
-        ...currentAppointments[existingIndex],
-        status: data.status as any,
-        date: data.date || currentAppointments[existingIndex].date,
-        time: data.time || currentAppointments[existingIndex].time,
-      };
-      saveStoredAppointments(currentAppointments);
-    }
+    currentAppointments[existingIndex] = {
+      ...currentAppointments[existingIndex],
+      patientName: data.patientName || currentAppointments[existingIndex].patientName,
+      patientPhone: data.patientPhone || currentAppointments[existingIndex].patientPhone,
+      patientEmail: data.patientEmail || currentAppointments[existingIndex].patientEmail,
+      patientAge: data.age || currentAppointments[existingIndex].patientAge,
+      patientGender: (data.gender as any) || currentAppointments[existingIndex].patientGender,
+      department: data.department || currentAppointments[existingIndex].department,
+      date: data.date || currentAppointments[existingIndex].date,
+      time: data.time || currentAppointments[existingIndex].time,
+      status: (data.status as any) || currentAppointments[existingIndex].status,
+      reason: data.reason || currentAppointments[existingIndex].reason,
+    };
+    saveStoredAppointments(currentAppointments);
     return currentAppointments[existingIndex];
   }
 
@@ -496,6 +494,8 @@ export async function syncSupabaseAppointmentsToStore() {
         saveStoredAppointments(reconciled);
       }
     }
+
+    notifyChange();
   } catch (err) {
     console.warn("Supabase Sync Error:", err);
   }
