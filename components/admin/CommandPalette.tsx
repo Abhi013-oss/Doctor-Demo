@@ -2,7 +2,8 @@
 
 import React, { useEffect, useState } from "react";
 import { Search, X, Calendar, User, ArrowRight } from "lucide-react";
-import { INITIAL_APPOINTMENTS, INITIAL_PATIENTS, Appointment, Patient } from "@/lib/admin-data";
+import { Appointment, Patient } from "@/lib/admin-data";
+import { useLiveClinicData } from "@/lib/store";
 import { useRouter } from "next/navigation";
 
 interface CommandPaletteProps {
@@ -14,6 +15,7 @@ interface CommandPaletteProps {
 
 export function CommandPalette({ isOpen, onClose, onSelectPatient, onSelectAppointment }: CommandPaletteProps) {
   const [query, setQuery] = useState("");
+  const { appointments = [], patients = [] } = useLiveClinicData();
   const router = useRouter();
 
   useEffect(() => {
@@ -26,29 +28,37 @@ export function CommandPalette({ isOpen, onClose, onSelectPatient, onSelectAppoi
         onClose();
       }
     };
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
+    if (typeof window !== "undefined") {
+      window.addEventListener("keydown", handleKeyDown);
+      return () => window.removeEventListener("keydown", handleKeyDown);
+    }
   }, [isOpen, onClose]);
 
   if (!isOpen) return null;
 
-  const filteredPatients = INITIAL_PATIENTS.filter(
-    (p) =>
-      p.name.toLowerCase().includes(query.toLowerCase()) ||
-      p.mrn.toLowerCase().includes(query.toLowerCase()) ||
-      p.phone.includes(query)
-  );
+  const safeQuery = (query || "").toLowerCase();
 
-  const filteredAppointments = INITIAL_APPOINTMENTS.filter(
-    (a) =>
-      a.patientName.toLowerCase().includes(query.toLowerCase()) ||
-      a.id.toLowerCase().includes(query.toLowerCase()) ||
-      a.doctorName.toLowerCase().includes(query.toLowerCase()) ||
-      a.department.toLowerCase().includes(query.toLowerCase())
-  );
+  const filteredPatients = (patients || []).filter((p) => {
+    if (!p || typeof p !== "object") return false;
+    return (
+      (p.name || "").toLowerCase().includes(safeQuery) ||
+      (p.mrn || "").toLowerCase().includes(safeQuery) ||
+      (p.phone || "").includes(safeQuery)
+    );
+  });
+
+  const filteredAppointments = (appointments || []).filter((a) => {
+    if (!a || typeof a !== "object") return false;
+    return (
+      (a.patientName || "").toLowerCase().includes(safeQuery) ||
+      (a.id || "").toLowerCase().includes(safeQuery) ||
+      (a.doctorName || "").toLowerCase().includes(safeQuery) ||
+      (a.department || "").toLowerCase().includes(safeQuery)
+    );
+  });
 
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center pt-16 sm:pt-24 px-4">
+    <div className="fixed inset-0 z-50 flex items-start justify-center pt-16 sm:pt-24 px-4 select-none">
       {/* Backdrop */}
       <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md transition-opacity" onClick={onClose} />
 
@@ -59,103 +69,96 @@ export function CommandPalette({ isOpen, onClose, onSelectPatient, onSelectAppoi
           <Search className="w-5 h-5 text-teal-400 shrink-0" />
           <input
             type="text"
-            autoFocus
+            placeholder="Search patients, MRN, appointments (Press Esc to close)..."
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search patients by name, MRN, phone, or appointment..."
-            className="w-full py-4 px-3 bg-transparent text-white text-sm focus:outline-none placeholder:text-slate-500"
+            className="w-full px-3 py-4 bg-transparent text-white text-sm focus:outline-none placeholder-slate-500"
+            autoFocus
           />
           <button onClick={onClose} className="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800">
-            <X className="w-5 h-5" />
+            <X className="w-4 h-4" />
           </button>
         </div>
 
-        {/* Search Results Area */}
-        <div className="max-h-96 overflow-y-auto p-4 space-y-6">
+        {/* Results List */}
+        <div className="max-h-96 overflow-y-auto p-3 space-y-4">
           {/* Patients Section */}
-          <div>
-            <div className="flex items-center gap-1.5 text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-2">
-              <User className="w-3.5 h-3.5 text-teal-400" />
-              Patients ({filteredPatients.length})
-            </div>
-            {filteredPatients.length === 0 ? (
-              <p className="text-xs text-slate-500 italic py-1 px-2">No matching patients found.</p>
-            ) : (
+          {filteredPatients.length > 0 && (
+            <div>
+              <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400 px-3 mb-2 flex items-center gap-1.5">
+                <User className="w-3.5 h-3.5 text-teal-400" />
+                <span>Patients ({filteredPatients.length})</span>
+              </div>
               <div className="space-y-1">
-                {filteredPatients.slice(0, 4).map((p) => (
+                {filteredPatients.slice(0, 4).map((patient) => (
                   <button
-                    key={p.id}
+                    key={patient.id}
                     onClick={() => {
+                      if (onSelectPatient) onSelectPatient(patient);
+                      router.push("/patients");
                       onClose();
-                      if (onSelectPatient) onSelectPatient(p);
-                      else router.push("/patients");
                     }}
-                    className="w-full flex items-center justify-between p-2.5 rounded-xl hover:bg-slate-800/70 transition-colors text-left group"
+                    className="w-full flex items-center justify-between p-3 rounded-xl hover:bg-slate-800/80 text-left transition group"
                   >
                     <div className="flex items-center gap-3">
-                      <img src={p.avatar} alt={p.name} className="w-8 h-8 rounded-full object-cover border border-slate-700" />
+                      <img
+                        src={patient.avatar || "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80"}
+                        alt={patient.name}
+                        className="w-8 h-8 rounded-full object-cover border border-slate-700"
+                      />
                       <div>
-                        <div className="flex items-center gap-2">
-                          <span className="text-xs font-bold text-slate-100 group-hover:text-teal-300">{p.name}</span>
-                          <span className="text-[10px] font-mono px-1.5 py-0.2 bg-slate-800 text-slate-400 rounded">
-                            {p.mrn}
-                          </span>
+                        <div className="text-xs font-bold text-white group-hover:text-teal-300 transition-colors">
+                          {patient.name} <span className="font-mono text-[10px] text-teal-400 font-bold ml-1">{patient.mrn}</span>
                         </div>
-                        <p className="text-[11px] text-slate-400">{p.phone} • {p.bloodGroup} • {p.conditions.join(", ")}</p>
+                        <div className="text-[10px] text-slate-400">{patient.phone} • {patient.disease || "General Care"}</div>
                       </div>
                     </div>
-                    <ArrowRight className="w-4 h-4 text-slate-500 opacity-0 group-hover:opacity-100 group-hover:text-teal-400 transition-all transform group-hover:translate-x-1" />
+                    <ArrowRight className="w-4 h-4 text-slate-500 group-hover:text-teal-400 transition-colors" />
                   </button>
                 ))}
               </div>
-            )}
-          </div>
+            </div>
+          )}
 
           {/* Appointments Section */}
-          <div>
-            <div className="flex items-center gap-1.5 text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-2">
-              <Calendar className="w-3.5 h-3.5 text-cyan-400" />
-              Appointments ({filteredAppointments.length})
-            </div>
-            {filteredAppointments.length === 0 ? (
-              <p className="text-xs text-slate-500 italic py-1 px-2">No matching appointments found.</p>
-            ) : (
+          {filteredAppointments.length > 0 && (
+            <div>
+              <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400 px-3 mb-2 flex items-center gap-1.5">
+                <Calendar className="w-3.5 h-3.5 text-cyan-400" />
+                <span>Appointments ({filteredAppointments.length})</span>
+              </div>
               <div className="space-y-1">
-                {filteredAppointments.slice(0, 4).map((a) => (
+                {filteredAppointments.slice(0, 4).map((apt) => (
                   <button
-                    key={a.id}
+                    key={apt.id}
                     onClick={() => {
+                      if (onSelectAppointment) onSelectAppointment(apt);
+                      router.push("/appointments");
                       onClose();
-                      if (onSelectAppointment) onSelectAppointment(a);
-                      else router.push("/appointments");
                     }}
-                    className="w-full flex items-center justify-between p-2.5 rounded-xl hover:bg-slate-800/70 transition-colors text-left group"
+                    className="w-full flex items-center justify-between p-3 rounded-xl hover:bg-slate-800/80 text-left transition group"
                   >
-                    <div className="flex items-center gap-3">
-                      <div className="w-8 h-8 rounded-lg bg-teal-500/10 text-teal-400 flex items-center justify-center font-mono text-xs font-bold">
-                        {a.time.split(" ")[0]}
+                    <div>
+                      <div className="text-xs font-bold text-white group-hover:text-teal-300 transition-colors flex items-center gap-2">
+                        <span>{apt.patientName}</span>
+                        <span className="font-mono text-[10px] text-teal-400 font-bold">{apt.id}</span>
                       </div>
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <span className="text-xs font-bold text-slate-100 group-hover:text-cyan-300">{a.patientName}</span>
-                          <span className="text-[10px] px-1.5 py-0.2 bg-teal-500/20 text-teal-300 rounded font-semibold">
-                            {a.status}
-                          </span>
-                        </div>
-                        <p className="text-[11px] text-slate-400">{a.reason} — {a.doctorName}</p>
+                      <div className="text-[10px] text-slate-400">
+                        {apt.date} • {apt.time} • <strong className="text-slate-300">{apt.department}</strong>
                       </div>
                     </div>
-                    <ArrowRight className="w-4 h-4 text-slate-500 opacity-0 group-hover:opacity-100 group-hover:text-cyan-400 transition-all transform group-hover:translate-x-1" />
+                    <ArrowRight className="w-4 h-4 text-slate-500 group-hover:text-teal-400 transition-colors" />
                   </button>
                 ))}
               </div>
-            )}
-          </div>
-        </div>
+            </div>
+          )}
 
-        {/* Modal Footer */}
-        <div className="p-3 bg-slate-950/60 border-t border-slate-800 flex items-center justify-end text-[11px] text-slate-400 font-mono">
-          <span>Press ESC to exit</span>
+          {filteredPatients.length === 0 && filteredAppointments.length === 0 && (
+            <div className="p-8 text-center text-xs text-slate-500">
+              No matching patients or appointments found for &quot;{query}&quot;.
+            </div>
+          )}
         </div>
       </div>
     </div>
