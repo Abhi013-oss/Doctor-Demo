@@ -3,6 +3,9 @@ import { generateBookingId } from "@/utils/date";
 import { insertAppointment, isSupabaseConfigured, supabase } from "@/lib/supabase";
 import { sendAppointmentEmails, isResendConfigured } from "@/lib/email";
 
+// Server-side persistent in-memory appointments store for cross-device synchronization
+const GLOBAL_SERVER_APPOINTMENTS: Array<Record<string, unknown>> = [];
+
 function sanitizeInput(str: unknown): string {
   if (typeof str !== "string") return "";
   return str
@@ -16,50 +19,58 @@ function sanitizeInput(str: unknown): string {
 
 /**
  * GET /api/appointments
- * Fetches all persistent appointments from Supabase so any device (laptop, phone, desktop)
+ * Fetches all persistent appointments from Supabase + Central Server Store so ANY device (laptop, phone, desktop)
  * logged into the Admin Panel gets the complete, synced patient & appointment directory.
  */
 export async function GET() {
   try {
-    if (isSupabaseConfigured) {
-      // Try querying primary appointments table
-      let { data, error } = await supabase
-        .from("appointments")
-        .select("*")
-        .order("created_at", { ascending: false });
+    const allAppointments: Array<Record<string, unknown>> = [...GLOBAL_SERVER_APPOINTMENTS];
 
-      // Fallback query if table name is dc_live_appointments
-      if (error || !data) {
-        const fallbackRes = await supabase
-          .from("dc_live_appointments")
+    if (isSupabaseConfigured) {
+      try {
+        // Try querying primary appointments table
+        let { data, error } = await supabase
+          .from("appointments")
           .select("*")
           .order("created_at", { ascending: false });
-        if (!fallbackRes.error && fallbackRes.data) {
-          data = fallbackRes.data;
-          error = null;
-        }
-      }
 
-      if (!error && data) {
-        return NextResponse.json({
-          success: true,
-          count: data.length,
-          appointments: data,
-          supabaseSynced: true
-        });
+        // Fallback query if table name is dc_live_appointments
+        if (error || !data || data.length === 0) {
+          const fallbackRes = await supabase
+            .from("dc_live_appointments")
+            .select("*")
+            .order("created_at", { ascending: false });
+          if (!fallbackRes.error && fallbackRes.data) {
+            data = fallbackRes.data;
+            error = null;
+          }
+        }
+
+        if (!error && data && data.length > 0) {
+          // Merge Supabase rows into allAppointments without duplicates
+          data.forEach((row) => {
+            const bId = row.booking_id || row.id;
+            const exists = allAppointments.some((a) => (a.booking_id || a.id) === bId);
+            if (!exists) {
+              allAppointments.unshift(row);
+            }
+          });
+        }
+      } catch (sbErr) {
+        console.warn("Supabase fetch in GET /api/appointments:", sbErr);
       }
     }
 
     return NextResponse.json({
       success: true,
-      count: 0,
-      appointments: [],
+      count: allAppointments.length,
+      appointments: allAppointments,
       supabaseSynced: isSupabaseConfigured
     });
   } catch (err: unknown) {
     console.error("GET /api/appointments Error:", err);
     return NextResponse.json(
-      { success: false, message: "Failed to fetch appointments", appointments: [] },
+      { success: false, message: "Failed to fetch appointments", appointments: GLOBAL_SERVER_APPOINTMENTS },
       { status: 500 }
     );
   }
@@ -67,7 +78,7 @@ export async function GET() {
 
 /**
  * POST /api/appointments
- * Inserts a new patient appointment into Supabase database and sends email notifications.
+ * Inserts a new patient appointment into Supabase database and server store for cross-device sync.
  */
 export async function POST(request: Request) {
   try {
@@ -159,8 +170,16 @@ export async function POST(request: Request) {
       preferred_time: cleanTime,
       message: cleanMessage,
       status: "Confirmed",
+      created_at: new Date().toISOString()
     };
 
+    // Save into server central memory store for immediate cross-device sync
+    const exists = GLOBAL_SERVER_APPOINTMENTS.some((a) => a.booking_id === bookingId);
+    if (!exists) {
+      GLOBAL_SERVER_APPOINTMENTS.unshift(appointmentPayload);
+    }
+
+    // Save into Supabase database
     const { error: dbError } = await insertAppointment(appointmentPayload);
 
     if (dbError) {

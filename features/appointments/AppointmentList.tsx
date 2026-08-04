@@ -13,7 +13,7 @@ import { Appointment } from "@/types";
 
 export function AppointmentList() {
   const {
-    appointments,
+    appointments = [],
     approveAppointment,
     rejectAppointment,
     deleteAppointment,
@@ -46,13 +46,14 @@ export function AppointmentList() {
     message: "",
   });
 
-  // Filter Logic
-  const filteredAppointments = appointments.filter((apt) => {
+  // Safe Filter Logic
+  const filteredAppointments = (appointments || []).filter((apt) => {
+    if (!apt || typeof apt !== "object" || !apt.id) return false;
     const matchesSearch =
-      apt.patientName.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      apt.id.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      apt.department.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      apt.patientPhone.includes(searchQuery);
+      (apt.patientName || "").toLowerCase().includes(searchQuery.toLowerCase()) ||
+      (apt.id || "").toLowerCase().includes(searchQuery.toLowerCase()) ||
+      (apt.department || "").toLowerCase().includes(searchQuery.toLowerCase()) ||
+      (apt.patientPhone || "").includes(searchQuery);
 
     const matchesStatus = statusFilter === "All" || apt.status === statusFilter;
     const matchesType = typeFilter === "All" || apt.type === typeFilter;
@@ -67,11 +68,12 @@ export function AppointmentList() {
   );
 
   const handleSaveAppointment = (newApt: Partial<Appointment>) => {
+    if (!newApt) return;
     const created = newApt as Appointment;
-    setAppointments([created, ...appointments]);
+    setAppointments([created, ...(appointments || [])]);
   };
 
-  const getBadgeVariant = (status: string) => {
+  const getBadgeVariant = (status?: string) => {
     switch (status) {
       case "Approved":
       case "Completed":
@@ -92,20 +94,20 @@ export function AppointmentList() {
     {
       header: `${terms.bookingLabel} ID`,
       accessorKey: "id" as keyof Appointment,
-      cell: (row: Appointment) => <span className="font-mono font-bold text-teal-400">{row.id}</span>,
+      cell: (row: Appointment) => <span className="font-mono font-bold text-teal-400">{row?.id || "N/A"}</span>,
     },
     {
       header: terms.clientLabel,
       cell: (row: Appointment) => (
         <div className="flex items-center gap-2.5">
           <img
-            src={row.avatar || "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80"}
-            alt={row.patientName}
+            src={row?.avatar || "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80"}
+            alt={row?.patientName || "Patient"}
             className="w-8 h-8 rounded-full object-cover border border-slate-700"
           />
           <div>
-            <div className="font-bold text-white">{row.patientName}</div>
-            <div className="text-[10px] text-slate-400">{row.patientPhone}</div>
+            <div className="font-bold text-white">{row?.patientName || "Guest Patient"}</div>
+            <div className="text-[10px] text-slate-400">{row?.patientPhone || "N/A"}</div>
           </div>
         </div>
       ),
@@ -114,8 +116,8 @@ export function AppointmentList() {
       header: "Date & Time",
       cell: (row: Appointment) => (
         <div>
-          <div className="font-semibold text-slate-200">{row.date}</div>
-          <div className="text-[10px] text-slate-400">{row.time}</div>
+          <div className="font-semibold text-slate-200">{row?.date || "Today"}</div>
+          <div className="text-[10px] text-slate-400">{row?.time || "Pending"}</div>
         </div>
       ),
     },
@@ -126,13 +128,13 @@ export function AppointmentList() {
     {
       header: "Type",
       cell: (row: Appointment) => (
-        <span className="text-xs font-semibold text-sky-400">{row.type}</span>
+        <span className="text-xs font-semibold text-sky-400">{row?.type || "In-Person"}</span>
       ),
     },
     {
       header: "Status",
       cell: (row: Appointment) => (
-        <Badge variant={getBadgeVariant(row.status)}>● {row.status}</Badge>
+        <Badge variant={getBadgeVariant(row?.status)}>● {row?.status || "Pending"}</Badge>
       ),
     },
     {
@@ -143,14 +145,16 @@ export function AppointmentList() {
             variant="outline"
             size="sm"
             onClick={() => {
-              setSelectedAppointment(row);
-              setIsDetailsOpen(true);
+              if (row) {
+                setSelectedAppointment(row);
+                setIsDetailsOpen(true);
+              }
             }}
           >
             View
           </Button>
 
-          {row.status === "Pending" && (
+          {row?.status === "Pending" && (
             <Button
               variant="primary"
               size="sm"
@@ -160,7 +164,7 @@ export function AppointmentList() {
                   type: "approve",
                   id: row.id,
                   title: `Approve ${terms.bookingLabel}`,
-                  message: `Are you sure you want to approve ${row.patientName}'s ${terms.bookingLabel}?`,
+                  message: `Are you sure you want to approve ${row.patientName || "this"}'s ${terms.bookingLabel}?`,
                 })
               }
             >
@@ -175,9 +179,9 @@ export function AppointmentList() {
               setConfirmDialog({
                 isOpen: true,
                 type: "delete",
-                id: row.id,
+                id: row?.id || "",
                 title: `Delete ${terms.bookingLabel}`,
-                message: `Are you sure you want to permanently delete record ${row.id}?`,
+                message: `Are you sure you want to permanently delete record ${row?.id || ""}?`,
               })
             }
           >
@@ -204,71 +208,90 @@ export function AppointmentList() {
             variant="outline"
             size="sm"
             onClick={() => exportAppointmentsCSV(filteredAppointments)}
-            leftIcon={<Download className="w-4 h-4" />}
+            className="flex items-center gap-1.5"
           >
+            <Download className="w-4 h-4" />
             Export CSV
           </Button>
+
           <Button
             variant="primary"
             size="sm"
             onClick={() => setIsScheduleOpen(true)}
-            leftIcon={<Plus className="w-4 h-4" />}
+            className="flex items-center gap-1.5"
           >
+            <Plus className="w-4 h-4" />
             New {terms.bookingLabel}
           </Button>
         </div>
       </div>
 
-      {/* Filter Controls */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 p-4 rounded-2xl bg-slate-900/60 border border-slate-800/80">
-        <Input
-          placeholder={`Search by name, ID, phone...`}
-          value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
-          icon={<Search className="w-4 h-4 text-slate-400" />}
-        />
+      {/* Filter Toolbar */}
+      <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-4 flex flex-col md:flex-row gap-4 justify-between items-stretch md:items-center">
+        <div className="relative flex-1">
+          <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+          <Input
+            placeholder={`Search by name, ID, phone...`}
+            value={searchQuery}
+            onChange={(e) => {
+              setSearchQuery(e.target.value);
+              setCurrentPage(1);
+            }}
+            className="pl-9 bg-slate-950/60 border-slate-800 focus:border-teal-500"
+          />
+        </div>
 
-        <Select
-          value={statusFilter}
-          onChange={(e) => setStatusFilter(e.target.value)}
-          options={[
-            { label: "All Statuses", value: "All" },
-            { label: "Pending Approval", value: "Pending" },
-            { label: "Approved / Scheduled", value: "Approved" },
-            { label: "Completed", value: "Completed" },
-            { label: "Cancelled / Rejected", value: "Cancelled" },
-          ]}
-        />
+        <div className="flex items-center gap-3">
+          <Select
+            value={statusFilter}
+            onChange={(e) => {
+              setStatusFilter(e.target.value);
+              setCurrentPage(1);
+            }}
+            options={[
+              { value: "All", label: "All Statuses" },
+              { value: "Pending", label: "Pending" },
+              { value: "Approved", label: "Approved" },
+              { value: "In Progress", label: "In Progress" },
+              { value: "Completed", label: "Completed" },
+              { value: "Cancelled", label: "Cancelled" },
+            ]}
+            className="w-40 bg-slate-950/60 border-slate-800 text-xs"
+          />
 
-        <Select
-          value={typeFilter}
-          onChange={(e) => setTypeFilter(e.target.value)}
-          options={[
-            { label: "All Visit Types", value: "All" },
-            { label: "In-Person Clinic", value: "In-Person" },
-            { label: "Telehealth Video", value: "Telehealth" },
-            { label: "Follow-up", value: "Follow-up" },
-            { label: "Emergency", value: "Emergency" },
-          ]}
-        />
+          <Select
+            value={typeFilter}
+            onChange={(e) => {
+              setTypeFilter(e.target.value);
+              setCurrentPage(1);
+            }}
+            options={[
+              { value: "All", label: "All Visit Types" },
+              { value: "In-Person", label: "In-Person" },
+              { value: "Telehealth", label: "Telehealth" },
+              { value: "Follow-up", label: "Follow-up" },
+            ]}
+            className="w-40 bg-slate-950/60 border-slate-800 text-xs"
+          />
+        </div>
       </div>
 
       {/* Data Table */}
       <Table
-        data={paginatedAppointments}
         columns={columns}
-        keyExtractor={(row) => row.id}
-        emptyText={`No ${terms.bookingsLabel.toLowerCase()} found matching your filters.`}
+        data={paginatedAppointments}
+        keyExtractor={(item) => (item && item.id ? item.id : `apt-${Math.random()}`)}
+        emptyText={`No ${terms.bookingsLabel.toLowerCase()} found.`}
       />
 
       {/* Pagination */}
-      <Pagination
-        currentPage={currentPage}
-        totalPages={totalPages}
-        onPageChange={setCurrentPage}
-        totalResults={filteredAppointments.length}
-        showingCount={paginatedAppointments.length}
-      />
+      {filteredAppointments.length > itemsPerPage && (
+        <Pagination
+          currentPage={currentPage}
+          totalPages={totalPages}
+          onPageChange={setCurrentPage}
+        />
+      )}
 
       {/* Schedule Modal */}
       <AppointmentModal
@@ -280,28 +303,39 @@ export function AppointmentList() {
       {/* Details Modal */}
       <AppointmentDetailsModal
         isOpen={isDetailsOpen}
-        onClose={() => setIsDetailsOpen(false)}
+        onClose={() => {
+          setIsDetailsOpen(false);
+          setSelectedAppointment(null);
+        }}
         appointment={selectedAppointment}
-        onApprove={approveAppointment}
-        onReject={rejectAppointment}
-        onReschedule={rescheduleAppointment}
+        onApprove={(id) => {
+          approveAppointment(id);
+          setIsDetailsOpen(false);
+        }}
+        onReject={(id) => {
+          rejectAppointment(id);
+          setIsDetailsOpen(false);
+        }}
+        onReschedule={(id, date, time) => {
+          rescheduleAppointment(id, date, time);
+          setIsDetailsOpen(false);
+        }}
       />
 
       {/* Confirmation Dialog */}
       <ConfirmationModal
         isOpen={confirmDialog.isOpen}
         onClose={() => setConfirmDialog((prev) => ({ ...prev, isOpen: false }))}
+        onConfirm={() => {
+          if (confirmDialog.type === "approve") approveAppointment(confirmDialog.id);
+          if (confirmDialog.type === "reject") rejectAppointment(confirmDialog.id);
+          if (confirmDialog.type === "delete") deleteAppointment(confirmDialog.id);
+          setConfirmDialog((prev) => ({ ...prev, isOpen: false }));
+        }}
         title={confirmDialog.title}
         message={confirmDialog.message}
-        confirmText={confirmDialog.type === "delete" ? "Delete Record" : "Confirm Approval"}
+        confirmText={confirmDialog.type === "delete" ? "Yes, Delete Record" : "Confirm Action"}
         type={confirmDialog.type}
-        onConfirm={() => {
-          if (confirmDialog.type === "approve") {
-            approveAppointment(confirmDialog.id);
-          } else if (confirmDialog.type === "delete") {
-            deleteAppointment(confirmDialog.id);
-          }
-        }}
       />
     </div>
   );

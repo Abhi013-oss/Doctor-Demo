@@ -25,6 +25,8 @@ export function Table<T>({
   isLoading = false,
   className,
 }: TableProps<T>) {
+  const safeData = (data || []).filter(Boolean);
+
   return (
     <div className={cn("w-full overflow-x-auto rounded-2xl border border-slate-800/80 bg-slate-900/60 backdrop-blur-xl", className)}>
       <table className="w-full text-left text-xs border-collapse">
@@ -47,26 +49,36 @@ export function Table<T>({
                 </div>
               </td>
             </tr>
-          ) : data.length === 0 ? (
+          ) : safeData.length === 0 ? (
             <tr>
               <td colSpan={columns.length} className="px-4 py-8 text-center text-slate-500">
                 {emptyText}
               </td>
             </tr>
           ) : (
-            data.map((row) => (
-              <tr key={keyExtractor(row)} className="hover:bg-slate-800/40 transition-colors">
-                {columns.map((col, idx) => (
-                  <td key={idx} className={cn("px-4 py-3.5 font-medium whitespace-nowrap", col.className)}>
-                    {col.cell
-                      ? col.cell(row)
-                      : col.accessorKey
-                      ? String(row[col.accessorKey] ?? "")
-                      : null}
-                  </td>
-                ))}
-              </tr>
-            ))
+            safeData.map((row, index) => {
+              if (!row) return null;
+              let rowKey = `row-${index}`;
+              try {
+                rowKey = keyExtractor(row) || `row-${index}`;
+              } catch {
+                rowKey = `row-${index}`;
+              }
+
+              return (
+                <tr key={rowKey} className="hover:bg-slate-800/40 transition-colors">
+                  {columns.map((col, idx) => (
+                    <td key={idx} className={cn("px-4 py-3.5 font-medium whitespace-nowrap", col.className)}>
+                      {col.cell
+                        ? col.cell(row)
+                        : col.accessorKey && row[col.accessorKey] !== undefined
+                        ? String(row[col.accessorKey] ?? "")
+                        : null}
+                    </td>
+                  ))}
+                </tr>
+              );
+            })
           )}
         </tbody>
       </table>

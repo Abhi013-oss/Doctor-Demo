@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Appointment, Patient, MessageThread, ClinicSettings, INITIAL_CLINIC_SETTINGS } from "./admin-data";
+import { Appointment, Patient, MessageThread, ClinicSettings, INITIAL_CLINIC_SETTINGS, INITIAL_APPOINTMENTS, INITIAL_PATIENTS } from "./admin-data";
 import { supabase, isSupabaseConfigured } from "./supabase";
 import { CLINIC_INFO } from "./data";
 
@@ -42,7 +42,10 @@ export function getStoredAppointments(): Appointment[] {
   if (typeof window === "undefined") return [];
   try {
     const raw = localStorage.getItem(STORAGE_KEYS.APPOINTMENTS);
-    return raw ? JSON.parse(raw) : [];
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    // Filter out old static fake demo appointments if any remain
+    return Array.isArray(parsed) ? parsed.filter((a) => !a.id.startsWith("APT-100")) : [];
   } catch {
     return [];
   }
@@ -60,7 +63,10 @@ export function getStoredPatients(): Patient[] {
   if (typeof window === "undefined") return [];
   try {
     const raw = localStorage.getItem(STORAGE_KEYS.PATIENTS);
-    return raw ? JSON.parse(raw) : [];
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    // Filter out old static fake demo patients if any remain
+    return Array.isArray(parsed) ? parsed.filter((p) => !p.id.startsWith("PAT-80")) : [];
   } catch {
     return [];
   }
@@ -226,7 +232,7 @@ export function addAppointmentFromWebsite(data: {
   }
 
   let patient = currentPatients.find(
-    (p) => p.email.toLowerCase() === data.patientEmail.toLowerCase() || p.phone === data.patientPhone
+    (p) => (data.patientEmail && p.email.toLowerCase() === data.patientEmail.toLowerCase()) || (data.patientPhone && p.phone === data.patientPhone)
   );
 
   if (!patient) {
@@ -239,7 +245,7 @@ export function addAppointmentFromWebsite(data: {
       phone: data.patientPhone,
       email: data.patientEmail,
       bloodGroup: "O+",
-      address: "Submitted via Main Website",
+      address: "Submitted via Website / Online Booking",
       disease: data.department || "General Consultation",
       lastVisit: data.date || new Date().toISOString().split("T")[0],
       totalVisits: 1,
@@ -283,31 +289,41 @@ export function addAppointmentFromWebsite(data: {
   return newAppointment;
 }
 
-// Fetch and sync all appointments directly from Supabase / API into Admin Store across all devices
+// Fetch and sync all appointments directly from Supabase / Server API into Admin Store across all devices
 export async function syncSupabaseAppointmentsToStore() {
   try {
     let rows: any[] = [];
 
-    // 1. Fetch via Supabase JS Client if configured
-    if (isSupabaseConfigured) {
-      const { data, error } = await supabase
-        .from("appointments")
-        .select("*")
-        .order("created_at", { ascending: false });
-
-      if (!error && data && data.length > 0) {
-        rows = data;
-      }
-    }
-
-    // 2. Fetch via API endpoint fallback for cross-device synchronization
-    if (rows.length === 0 && typeof window !== "undefined") {
+    // 1. Fetch via API endpoint (always runs for cross-device multi-client sync)
+    if (typeof window !== "undefined") {
       const res = await fetch("/api/appointments").catch(() => null);
       if (res && res.ok) {
         const json = await res.json().catch(() => null);
-        if (json && json.appointments) {
+        if (json && json.appointments && Array.isArray(json.appointments)) {
           rows = json.appointments;
         }
+      }
+    }
+
+    // 2. Fetch via Supabase JS Client if configured & merge missing rows
+    if (isSupabaseConfigured) {
+      try {
+        const { data, error } = await supabase
+          .from("appointments")
+          .select("*")
+          .order("created_at", { ascending: false });
+
+        if (!error && data && data.length > 0) {
+          data.forEach((sbRow) => {
+            const bId = sbRow.booking_id || sbRow.id;
+            const exists = rows.some((r) => (r.booking_id || r.id) === bId);
+            if (!exists) {
+              rows.unshift(sbRow);
+            }
+          });
+        }
+      } catch (sbErr) {
+        console.warn("Supabase direct select:", sbErr);
       }
     }
 
@@ -385,10 +401,10 @@ export function useLiveClinicData() {
     refreshData();
     syncSupabaseAppointmentsToStore().then(() => refreshData());
 
-    // Background sync polling every 10 seconds for cross-device multi-client synchronization
+    // Background sync polling every 5 seconds for cross-device multi-client synchronization
     const syncInterval = setInterval(() => {
       syncSupabaseAppointmentsToStore().then(() => refreshData());
-    }, 10000);
+    }, 5000);
 
     // 1. Storage & local broadcast listener
     const handleEvent = () => refreshData();
