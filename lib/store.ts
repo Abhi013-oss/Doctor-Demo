@@ -283,29 +283,48 @@ export function addAppointmentFromWebsite(data: {
   return newAppointment;
 }
 
-// Fetch and sync all appointments directly from Supabase into Admin Store
+// Fetch and sync all appointments directly from Supabase / API into Admin Store across all devices
 export async function syncSupabaseAppointmentsToStore() {
-  if (!isSupabaseConfigured) return;
   try {
-    const { data, error } = await supabase
-      .from("appointments")
-      .select("*")
-      .order("created_at", { ascending: false });
+    let rows: any[] = [];
 
-    if (error || !data) return;
+    // 1. Fetch via Supabase JS Client if configured
+    if (isSupabaseConfigured) {
+      const { data, error } = await supabase
+        .from("appointments")
+        .select("*")
+        .order("created_at", { ascending: false });
 
-    data.forEach((row) => {
+      if (!error && data && data.length > 0) {
+        rows = data;
+      }
+    }
+
+    // 2. Fetch via API endpoint fallback for cross-device synchronization
+    if (rows.length === 0 && typeof window !== "undefined") {
+      const res = await fetch("/api/appointments").catch(() => null);
+      if (res && res.ok) {
+        const json = await res.json().catch(() => null);
+        if (json && json.appointments) {
+          rows = json.appointments;
+        }
+      }
+    }
+
+    if (!rows || rows.length === 0) return;
+
+    rows.forEach((row) => {
       addAppointmentFromWebsite({
-        bookingId: row.booking_id,
-        patientName: row.name,
-        patientPhone: row.phone,
-        patientEmail: row.email,
-        date: row.preferred_date,
-        time: row.preferred_time,
-        department: row.disease,
-        reason: row.message,
-        age: row.age,
-        gender: row.gender,
+        bookingId: row.booking_id || row.id,
+        patientName: row.name || row.patientName,
+        patientPhone: row.phone || row.patientPhone,
+        patientEmail: row.email || row.patientEmail,
+        date: row.preferred_date || row.date,
+        time: row.preferred_time || row.time,
+        department: row.disease || row.department,
+        reason: row.message || row.reason,
+        age: row.age || row.patientAge,
+        gender: row.gender || row.patientGender,
       });
     });
   } catch (err) {
@@ -348,7 +367,7 @@ export function addContactMessageFromWebsite(data: {
   return newThread;
 }
 
-// React Hook for Realtime & Live Clinic Data
+// React Hook for Realtime & Live Clinic Data across all devices
 export function useLiveClinicData() {
   const [appointments, setAppointments] = useState<Appointment[]>([]);
   const [patients, setPatients] = useState<Patient[]>([]);
@@ -365,6 +384,11 @@ export function useLiveClinicData() {
   useEffect(() => {
     refreshData();
     syncSupabaseAppointmentsToStore().then(() => refreshData());
+
+    // Background sync polling every 10 seconds for cross-device multi-client synchronization
+    const syncInterval = setInterval(() => {
+      syncSupabaseAppointmentsToStore().then(() => refreshData());
+    }, 10000);
 
     // 1. Storage & local broadcast listener
     const handleEvent = () => refreshData();
@@ -406,6 +430,7 @@ export function useLiveClinicData() {
     }
 
     return () => {
+      clearInterval(syncInterval);
       window.removeEventListener(EVENT_NAME, handleEvent);
       window.removeEventListener("storage", handleEvent);
       if (channel) {

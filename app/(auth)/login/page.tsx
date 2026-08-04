@@ -17,19 +17,24 @@ import { DEMO_ADMIN_USER } from "@/lib/supabase";
 export default function LoginPage() {
   const { login } = useAuth();
 
-  const [email, setEmail] = useState("admin@doctorclinic.com");
-  const [password, setPassword] = useState("admin123");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!email.trim() || !password) {
+      setErrorMsg("Please enter both email address and password.");
+      return;
+    }
+
     setErrorMsg("");
     setIsSubmitting(true);
 
     try {
-      // 1. Immediately set session cookie so Middleware passes request to /dashboard
+      // 1. Set session cookie so Middleware passes request to /dashboard
       const maxAge = 30 * 24 * 60 * 60;
       document.cookie = `doctor_admin_session=active; path=/; max-age=${maxAge}; SameSite=Lax`;
 
@@ -41,7 +46,14 @@ export default function LoginPage() {
       localStorage.setItem("doctor_admin_user", JSON.stringify(sessionUser));
 
       // 3. Trigger Supabase auth login helper
-      login(email, password).catch(() => {});
+      const res = await login(email.trim(), password);
+
+      if (res && !res.success && res.error) {
+        // Fallback for custom error message if login failed
+        setErrorMsg(res.error);
+        setIsSubmitting(false);
+        return;
+      }
 
       // 4. Instant browser redirect to dashboard
       window.location.href = "/dashboard";
@@ -81,7 +93,7 @@ export default function LoginPage() {
         )}
 
         {/* Login Form */}
-        <form onSubmit={handleSubmit} className="space-y-4">
+        <form onSubmit={handleSubmit} className="space-y-4" autoComplete="off">
           {/* Email Input */}
           <div>
             <label className="block text-xs font-bold text-slate-300 uppercase tracking-wider mb-2">
@@ -93,7 +105,8 @@ export default function LoginPage() {
                 type="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                placeholder="admin@doctorclinic.com"
+                placeholder="Enter doctor or admin email..."
+                autoComplete="off"
                 className="w-full pl-10 pr-4 py-3 rounded-xl bg-slate-800/80 border border-slate-700/80 text-white text-sm focus:outline-none focus:border-teal-400 transition-colors"
                 required
               />
@@ -119,7 +132,8 @@ export default function LoginPage() {
                 type={showPassword ? "text" : "password"}
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                placeholder="••••••••••••"
+                placeholder="Enter password..."
+                autoComplete="new-password"
                 className="w-full pl-10 pr-10 py-3 rounded-xl bg-slate-800/80 border border-slate-700/80 text-white text-sm focus:outline-none focus:border-teal-400 transition-colors"
                 required
               />

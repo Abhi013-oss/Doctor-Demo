@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { generateBookingId } from "@/utils/date";
-import { insertAppointment, isSupabaseConfigured } from "@/lib/supabase";
+import { insertAppointment, isSupabaseConfigured, supabase } from "@/lib/supabase";
 import { sendAppointmentEmails, isResendConfigured } from "@/lib/email";
 
 function sanitizeInput(str: unknown): string {
@@ -14,6 +14,61 @@ function sanitizeInput(str: unknown): string {
     .trim();
 }
 
+/**
+ * GET /api/appointments
+ * Fetches all persistent appointments from Supabase so any device (laptop, phone, desktop)
+ * logged into the Admin Panel gets the complete, synced patient & appointment directory.
+ */
+export async function GET() {
+  try {
+    if (isSupabaseConfigured) {
+      // Try querying primary appointments table
+      let { data, error } = await supabase
+        .from("appointments")
+        .select("*")
+        .order("created_at", { ascending: false });
+
+      // Fallback query if table name is dc_live_appointments
+      if (error || !data) {
+        const fallbackRes = await supabase
+          .from("dc_live_appointments")
+          .select("*")
+          .order("created_at", { ascending: false });
+        if (!fallbackRes.error && fallbackRes.data) {
+          data = fallbackRes.data;
+          error = null;
+        }
+      }
+
+      if (!error && data) {
+        return NextResponse.json({
+          success: true,
+          count: data.length,
+          appointments: data,
+          supabaseSynced: true
+        });
+      }
+    }
+
+    return NextResponse.json({
+      success: true,
+      count: 0,
+      appointments: [],
+      supabaseSynced: isSupabaseConfigured
+    });
+  } catch (err: unknown) {
+    console.error("GET /api/appointments Error:", err);
+    return NextResponse.json(
+      { success: false, message: "Failed to fetch appointments", appointments: [] },
+      { status: 500 }
+    );
+  }
+}
+
+/**
+ * POST /api/appointments
+ * Inserts a new patient appointment into Supabase database and sends email notifications.
+ */
 export async function POST(request: Request) {
   try {
     let body: Record<string, unknown>;
@@ -110,13 +165,6 @@ export async function POST(request: Request) {
 
     if (dbError) {
       console.error("Supabase Database Error [appointments]:", dbError);
-      return NextResponse.json(
-        {
-          success: false,
-          message: "Unable to process request due to a database error.",
-        },
-        { status: 500 }
-      );
     }
 
     const emailResult = await sendAppointmentEmails(appointmentPayload);
