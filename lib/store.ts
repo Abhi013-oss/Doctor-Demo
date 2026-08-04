@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Appointment, Patient, MessageThread, ClinicSettings, INITIAL_CLINIC_SETTINGS, INITIAL_APPOINTMENTS, INITIAL_PATIENTS } from "./admin-data";
+import { Appointment, Patient, MessageThread, ClinicSettings, INITIAL_CLINIC_SETTINGS } from "./admin-data";
 import { supabase, isSupabaseConfigured } from "./supabase";
 import { CLINIC_INFO } from "./data";
 
@@ -44,8 +44,9 @@ export function getStoredAppointments(): Appointment[] {
     const raw = localStorage.getItem(STORAGE_KEYS.APPOINTMENTS);
     if (!raw) return [];
     const parsed = JSON.parse(raw);
-    // Filter out old static fake demo appointments if any remain
-    return Array.isArray(parsed) ? parsed.filter((a) => !a.id.startsWith("APT-100")) : [];
+    return Array.isArray(parsed)
+      ? parsed.filter((a) => a && typeof a === "object" && a.id && !a.id.startsWith("APT-100"))
+      : [];
   } catch {
     return [];
   }
@@ -53,7 +54,8 @@ export function getStoredAppointments(): Appointment[] {
 
 export function saveStoredAppointments(appointments: Appointment[]) {
   if (typeof window !== "undefined") {
-    localStorage.setItem(STORAGE_KEYS.APPOINTMENTS, JSON.stringify(appointments));
+    const clean = (appointments || []).filter((a) => a && typeof a === "object" && a.id);
+    localStorage.setItem(STORAGE_KEYS.APPOINTMENTS, JSON.stringify(clean));
     notifyChange();
   }
 }
@@ -65,8 +67,9 @@ export function getStoredPatients(): Patient[] {
     const raw = localStorage.getItem(STORAGE_KEYS.PATIENTS);
     if (!raw) return [];
     const parsed = JSON.parse(raw);
-    // Filter out old static fake demo patients if any remain
-    return Array.isArray(parsed) ? parsed.filter((p) => !p.id.startsWith("PAT-80")) : [];
+    return Array.isArray(parsed)
+      ? parsed.filter((p) => p && typeof p === "object" && p.id && !p.id.startsWith("PAT-80"))
+      : [];
   } catch {
     return [];
   }
@@ -74,7 +77,8 @@ export function getStoredPatients(): Patient[] {
 
 export function saveStoredPatients(patients: Patient[]) {
   if (typeof window !== "undefined") {
-    localStorage.setItem(STORAGE_KEYS.PATIENTS, JSON.stringify(patients));
+    const clean = (patients || []).filter((p) => p && typeof p === "object" && p.id);
+    localStorage.setItem(STORAGE_KEYS.PATIENTS, JSON.stringify(clean));
     notifyChange();
   }
 }
@@ -84,7 +88,9 @@ export function getStoredMessages(): MessageThread[] {
   if (typeof window === "undefined") return [];
   try {
     const raw = localStorage.getItem(STORAGE_KEYS.MESSAGES);
-    return raw ? JSON.parse(raw) : [];
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed.filter((m) => m && typeof m === "object" && m.id) : [];
   } catch {
     return [];
   }
@@ -92,27 +98,42 @@ export function getStoredMessages(): MessageThread[] {
 
 export function saveStoredMessages(threads: MessageThread[]) {
   if (typeof window !== "undefined") {
-    localStorage.setItem(STORAGE_KEYS.MESSAGES, JSON.stringify(threads));
+    const clean = (threads || []).filter((m) => m && typeof m === "object" && m.id);
+    localStorage.setItem(STORAGE_KEYS.MESSAGES, JSON.stringify(clean));
     notifyChange();
   }
 }
 
-// ==========================================
-// ENTERPRISE ACTION WORKFLOW FUNCTIONS
-// ==========================================
-
-export function updateAppointmentStatus(id: string, newStatus: Appointment['status']) {
+// Store Mutation Actions
+export function updateAppointmentStatus(id: string, newStatus: Appointment["status"]) {
   const current = getStoredAppointments();
   const updated = current.map((a) => (a.id === id ? { ...a, status: newStatus } : a));
   saveStoredAppointments(updated);
+
+  // Sync to Supabase DB if configured
+  if (isSupabaseConfigured) {
+    supabase
+      .from("appointments")
+      .update({ status: newStatus })
+      .or(`id.eq.${id},booking_id.eq.${id}`)
+      .then(() => {}, () => {});
+  }
 }
 
 export function rescheduleAppointmentInStore(id: string, newDate: string, newTime: string) {
   const current = getStoredAppointments();
   const updated = current.map((a) =>
-    a.id === id ? { ...a, date: newDate, time: newTime, status: "Approved" as const } : a
+    a.id === id ? { ...a, date: newDate, time: newTime, status: "Scheduled" as const } : a
   );
   saveStoredAppointments(updated);
+
+  if (isSupabaseConfigured) {
+    supabase
+      .from("appointments")
+      .update({ preferred_date: newDate, preferred_time: newTime, status: "Scheduled" })
+      .or(`id.eq.${id},booking_id.eq.${id}`)
+      .then(() => {}, () => {});
+  }
 }
 
 export function deleteAppointmentFromStore(id: string) {
@@ -123,26 +144,32 @@ export function deleteAppointmentFromStore(id: string) {
 
   if (target) {
     const remainingForPatient = updated.filter(
-      (a) => a.patientId === target.patientId || (target.patientEmail && a.patientEmail.toLowerCase() === target.patientEmail.toLowerCase())
+      (a) => a.patientId === target.patientId || (target.patientEmail && a.patientEmail && a.patientEmail.toLowerCase() === target.patientEmail.toLowerCase())
     );
-
-    const patients = getStoredPatients();
     if (remainingForPatient.length === 0) {
-      // If 0 appointments remain for this patient, remove patient record automatically
+      const patients = getStoredPatients();
       const updatedPatients = patients.filter(
-        (p) => p.id !== target.patientId && (target.patientEmail ? p.email.toLowerCase() !== target.patientEmail.toLowerCase() : true)
+        (p) => p.id !== target.patientId && (target.patientEmail ? (p.email || "").toLowerCase() !== target.patientEmail.toLowerCase() : true)
       );
       saveStoredPatients(updatedPatients);
     } else {
-      // Decrement patient visit count
+      const patients = getStoredPatients();
       const updatedPatients = patients.map((p) => {
-        if (p.id === target.patientId || (target.patientEmail && p.email.toLowerCase() === target.patientEmail.toLowerCase())) {
-          return { ...p, totalVisits: Math.max(0, p.totalVisits - 1) };
+        if (p.id === target.patientId || (target.patientEmail && (p.email || "").toLowerCase() === target.patientEmail.toLowerCase())) {
+          return { ...p, totalVisits: Math.max(1, p.totalVisits - 1) };
         }
         return p;
       });
       saveStoredPatients(updatedPatients);
     }
+  }
+
+  if (isSupabaseConfigured) {
+    supabase
+      .from("appointments")
+      .delete()
+      .or(`id.eq.${id},booking_id.eq.${id}`)
+      .then(() => {}, () => {});
   }
 }
 
@@ -155,39 +182,35 @@ export function deletePatientFromStore(patientId: string) {
   if (targetPatient) {
     const appointments = getStoredAppointments();
     const updatedAppointments = appointments.filter(
-      (a) => a.patientId !== targetPatient.id && a.patientEmail.toLowerCase() !== targetPatient.email.toLowerCase()
+      (a) => a.patientId !== targetPatient.id && (targetPatient.email ? (a.patientEmail || "").toLowerCase() !== targetPatient.email.toLowerCase() : true)
     );
     saveStoredAppointments(updatedAppointments);
   }
 }
 
-// Doctor Note Operations (Strictly Private to Admin Panel)
-export function addDoctorNoteToPatient(patientId: string, text: string, author = CLINIC_INFO.doctor.name.split(',')[0]) {
+export function addDoctorNoteToPatient(patientId: string, text: string, author: string = "Dr. Alexander Vance") {
   const patients = getStoredPatients();
   const updated = patients.map((p) => {
     if (p.id === patientId || p.email === patientId) {
-      const existingNotes = p.doctorNotes || [];
       const newNote = {
-        id: `note-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+        id: `note-${Date.now()}`,
+        date: new Date().toISOString().split("T")[0],
         author,
-        date: new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", hour: "2-digit", minute: "2-digit" }),
-        text: text.trim(),
-        isPrivate: true
+        text,
+        isPrivate: false,
       };
-      return { ...p, doctorNotes: [newNote, ...existingNotes] };
+      return { ...p, doctorNotes: [newNote, ...(p.doctorNotes || [])] };
     }
     return p;
   });
   saveStoredPatients(updated);
 }
 
-export function editDoctorNoteInPatient(patientId: string, noteId: string, newText: string) {
+export function editDoctorNoteInPatient(patientId: string, noteId: string, text: string) {
   const patients = getStoredPatients();
   const updated = patients.map((p) => {
     if (p.id === patientId || p.email === patientId) {
-      const updatedNotes = (p.doctorNotes || []).map((n) =>
-        n.id === noteId ? { ...n, text: newText.trim(), date: `${n.date} (Edited)` } : n
-      );
+      const updatedNotes = (p.doctorNotes || []).map((n) => (n.id === noteId ? { ...n, text } : n));
       return { ...p, doctorNotes: updatedNotes };
     }
     return p;
@@ -207,6 +230,41 @@ export function deleteDoctorNoteFromPatient(patientId: string, noteId: string) {
   saveStoredPatients(updated);
 }
 
+// Helper: Public Website Contact Form Submission
+export function addContactMessageFromWebsite(data: {
+  name: string;
+  email: string;
+  phone?: string;
+  subject?: string;
+  message: string;
+}) {
+  const currentMessages = getStoredMessages();
+
+  const newThread: MessageThread = {
+    id: `MSG-${Math.floor(100 + Math.random() * 900)}`,
+    patientId: `PAT-${Math.floor(1000 + Math.random() * 9000)}`,
+    patientName: data.name,
+    patientAvatar: "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80",
+    lastMessage: data.message,
+    timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+    unreadCount: 1,
+    category: "General Query",
+    isUrgent: true,
+    messages: [
+      {
+        id: `m-${Date.now()}`,
+        sender: "patient",
+        text: data.message,
+        timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+      }
+    ]
+  };
+
+  currentMessages.unshift(newThread);
+  saveStoredMessages(currentMessages);
+  return newThread;
+}
+
 // Helper: Public Website Booking Submission & Supabase Sync
 export function addAppointmentFromWebsite(data: {
   bookingId?: string;
@@ -219,31 +277,41 @@ export function addAppointmentFromWebsite(data: {
   reason?: string;
   age?: number;
   gender?: 'Male' | 'Female' | 'Other' | string;
+  status?: string;
 }) {
   const currentPatients = getStoredPatients();
   const currentAppointments = getStoredAppointments();
 
   const bookingCode = data.bookingId || `APT-${Math.floor(10000 + Math.random() * 90000)}`;
 
-  // Avoid duplicate entries if already in store
-  const existingApt = currentAppointments.find((a) => a.id === bookingCode);
-  if (existingApt) {
-    return existingApt;
+  // Avoid duplicate entries if already in store, but update status if changed
+  const existingIndex = currentAppointments.findIndex((a) => a.id === bookingCode);
+  if (existingIndex !== -1) {
+    if (data.status && currentAppointments[existingIndex].status !== data.status) {
+      currentAppointments[existingIndex] = {
+        ...currentAppointments[existingIndex],
+        status: data.status as any,
+        date: data.date || currentAppointments[existingIndex].date,
+        time: data.time || currentAppointments[existingIndex].time,
+      };
+      saveStoredAppointments(currentAppointments);
+    }
+    return currentAppointments[existingIndex];
   }
 
   let patient = currentPatients.find(
-    (p) => (data.patientEmail && p.email.toLowerCase() === data.patientEmail.toLowerCase()) || (data.patientPhone && p.phone === data.patientPhone)
+    (p) => (data.patientEmail && p.email && p.email.toLowerCase() === data.patientEmail.toLowerCase()) || (data.patientPhone && p.phone === data.patientPhone)
   );
 
   if (!patient) {
     patient = {
       id: `PAT-${Math.floor(1000 + Math.random() * 9000)}`,
       mrn: `MRN-${Math.floor(10000 + Math.random() * 90000)}`,
-      name: data.patientName,
+      name: data.patientName || "Guest Patient",
       age: data.age || 32,
       gender: (data.gender as any) || "Male",
-      phone: data.patientPhone,
-      email: data.patientEmail,
+      phone: data.patientPhone || "",
+      email: data.patientEmail || "",
       bloodGroup: "O+",
       address: "Submitted via Website / Online Booking",
       disease: data.department || "General Consultation",
@@ -268,9 +336,9 @@ export function addAppointmentFromWebsite(data: {
   const newAppointment: Appointment = {
     id: bookingCode,
     patientId: patient.id,
-    patientName: data.patientName,
-    patientPhone: data.patientPhone,
-    patientEmail: data.patientEmail,
+    patientName: data.patientName || "Guest Patient",
+    patientPhone: data.patientPhone || "",
+    patientEmail: data.patientEmail || "",
     patientAge: data.age || patient.age,
     patientGender: (data.gender as any) || patient.gender,
     doctorName: CLINIC_INFO.doctor.name.split(',')[0],
@@ -278,7 +346,7 @@ export function addAppointmentFromWebsite(data: {
     date: data.date || new Date().toISOString().split("T")[0],
     time: data.time || "10:00 AM",
     type: "In-Person",
-    status: "Pending",
+    status: (data.status as any) || "Pending",
     reason: data.reason || "Website Patient Booking",
     avatar: patient.avatar,
     createdAt: nowStr
@@ -341,46 +409,12 @@ export async function syncSupabaseAppointmentsToStore() {
         reason: row.message || row.reason,
         age: row.age || row.patientAge,
         gender: row.gender || row.patientGender,
+        status: row.status,
       });
     });
   } catch (err) {
     console.warn("Supabase Sync Error:", err);
   }
-}
-
-// Helper: Public Website Contact Form Submission
-export function addContactMessageFromWebsite(data: {
-  name: string;
-  email: string;
-  phone?: string;
-  subject?: string;
-  message: string;
-}) {
-  const currentMessages = getStoredMessages();
-
-  const newThread: MessageThread = {
-    id: `MSG-${Math.floor(100 + Math.random() * 900)}`,
-    patientId: `PAT-${Math.floor(1000 + Math.random() * 9000)}`,
-    patientName: data.name,
-    patientAvatar: "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80",
-    lastMessage: data.message,
-    timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-    unreadCount: 1,
-    category: "General Query",
-    isUrgent: true,
-    messages: [
-      {
-        id: `m-${Date.now()}`,
-        sender: "patient",
-        text: data.message,
-        timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
-      }
-    ]
-  };
-
-  currentMessages.unshift(newThread);
-  saveStoredMessages(currentMessages);
-  return newThread;
 }
 
 // React Hook for Realtime & Live Clinic Data across all devices
@@ -401,15 +435,17 @@ export function useLiveClinicData() {
     refreshData();
     syncSupabaseAppointmentsToStore().then(() => refreshData());
 
-    // Background sync polling every 5 seconds for cross-device multi-client synchronization
+    // Background sync polling every 3 seconds for instant cross-device synchronization
     const syncInterval = setInterval(() => {
       syncSupabaseAppointmentsToStore().then(() => refreshData());
-    }, 5000);
+    }, 3000);
 
     // 1. Storage & local broadcast listener
     const handleEvent = () => refreshData();
-    window.addEventListener(EVENT_NAME, handleEvent);
-    window.addEventListener("storage", handleEvent);
+    if (typeof window !== "undefined") {
+      window.addEventListener(EVENT_NAME, handleEvent);
+      window.addEventListener("storage", handleEvent);
+    }
 
     // 2. Supabase Realtime channel subscription with unique instance ID
     let channel: any = null;
@@ -434,6 +470,7 @@ export function useLiveClinicData() {
                   reason: payload.new.message,
                   age: payload.new.age,
                   gender: payload.new.gender,
+                  status: payload.new.status,
                 });
               }
               refreshData();
@@ -447,8 +484,10 @@ export function useLiveClinicData() {
 
     return () => {
       clearInterval(syncInterval);
-      window.removeEventListener(EVENT_NAME, handleEvent);
-      window.removeEventListener("storage", handleEvent);
+      if (typeof window !== "undefined") {
+        window.removeEventListener(EVENT_NAME, handleEvent);
+        window.removeEventListener("storage", handleEvent);
+      }
       if (channel) {
         supabase.removeChannel(channel);
       }
